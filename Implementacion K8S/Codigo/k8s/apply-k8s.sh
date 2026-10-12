@@ -20,14 +20,14 @@ if ! minikube status &> /dev/null; then
 fi
 
 echo ""
-echo "1. Etiquetando nodo (requerido para que los pods se programen)..."
-NODE_NAME=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
-if [ -n "$NODE_NAME" ]; then
-    kubectl label nodes $NODE_NAME node-type=all --overwrite 2>/dev/null || true
-    echo "   Nodo $NODE_NAME etiquetado con node-type=all"
-else
-    echo "   No se pudo obtener el nombre del nodo. Continuando..."
-fi
+echo "1. Etiquetando nodos..."
+NODES=($(kubectl get nodes -o jsonpath='{.items[*].metadata.name}'))
+kubectl label nodes "${NODES[0]}" node-type=all --overwrite
+echo "   ${NODES[0]} -> node-type=all"
+for n in "${NODES[@]:1}"; do
+    kubectl label nodes "$n" node-type=backend --overwrite
+    echo "   $n -> node-type=backend"
+done
 
 echo ""
 echo "2. Creando namespace..."
