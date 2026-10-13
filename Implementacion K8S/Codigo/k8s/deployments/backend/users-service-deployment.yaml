@@ -21,7 +21,8 @@ spec:
             - matchExpressions:
               - key: node-type
                 operator: In
-                values: [backend, all] # ← NUEVO desde acá
+                values: [backend, all]
+        podAntiAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
           - labelSelector:
               matchLabels:
