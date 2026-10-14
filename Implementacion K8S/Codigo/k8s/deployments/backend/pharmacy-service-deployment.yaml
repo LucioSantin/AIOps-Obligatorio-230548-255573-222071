@@ -5,6 +5,13 @@ metadata:
   namespace: pharmago
 spec:
   replicas: 1
+  # Rolling update sin downtime: primero se levanta el pod nuevo y solo cuando
+  # está READY se baja el viejo (nunca hay 0 réplicas disponibles).
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app: pharmago-pharmacy-service
@@ -22,12 +29,21 @@ spec:
               - key: node-type
                 operator: In
                 values: [backend, all]
-        podAntiAffinity:                          
+        # Ningún OTRO microservicio de backend puede compartir nodo con este.
+        # Se excluye el propio app para que, durante un rolling update, la
+        # versión nueva pueda convivir momentáneamente con la vieja.
+        podAntiAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
           - labelSelector:
-              matchLabels:
-                tier: backend
+              matchExpressions:
+              - key: tier
+                operator: In
+                values: [backend]
+              - key: app
+                operator: NotIn
+                values: [pharmago-pharmacy-service]
             topologyKey: kubernetes.io/hostname
+      terminationGracePeriodSeconds: 30
       containers:
       - name: pharmago-pharmacy-service
         image: pharmago-pharmacy-service:latest
@@ -53,6 +69,12 @@ spec:
           limits:
             memory: "384Mi"
             cpu: "500m"
+        # Al terminar, esperar a que el Service deje de enrutar a este pod
+        # antes de que el proceso reciba SIGTERM (evita requests cortados).
+        lifecycle:
+          preStop:
+            exec:
+              command: ["sleep", "10"]
         startupProbe:
           httpGet:
             path: /health

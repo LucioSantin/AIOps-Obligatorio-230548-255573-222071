@@ -1,7 +1,15 @@
 #!/bin/bash
 # Script para construir y cargar imágenes Docker en Minikube (multi-nodo)
 # Funciona en Linux y Mac
-# Uso: ./build-images.sh
+# Uso:
+#   ./build-images.sh                       # construye todas las imágenes
+#   ./build-images.sh gateway users         # solo algunas (users, pharmacy, gateway, ui)
+#   TAG=v2 ./build-images.sh                # tag explícito
+#
+# Cada imagen se etiqueta con una versión única (hash corto del commit, con
+# sufijo -dirty-<timestamp> si hay cambios sin commitear en Backend/Frontend)
+# y además con :latest (usado por los manifiestos en la instalación inicial).
+# El tag generado se guarda en .image-tag para que deploy.sh lo use.
 
 set -e
 
@@ -23,35 +31,44 @@ fi
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 CODE_DIR="$(dirname "$SCRIPT_DIR")"
 
+SERVICES=("$@")
+if [ ${#SERVICES[@]} -eq 0 ]; then
+    SERVICES=(users pharmacy gateway ui)
+fi
+
+# Calcular el tag de la versión
+if [ -z "$TAG" ]; then
+    TAG="$(git -C "$CODE_DIR" rev-parse --short HEAD)"
+    if [ -n "$(git -C "$CODE_DIR" status --porcelain -- Backend Frontend)" ]; then
+        TAG="$TAG-dirty-$(date +%Y%m%d%H%M%S)"
+    fi
+fi
+echo "Tag de versión: $TAG"
+
+for service in "${SERVICES[@]}"; do
+    # servicio -> imagen, directorio de contexto y Dockerfile
+    case "$service" in
+        users)    image=pharmago-users-service;    context=Backend;  dockerfile=PharmaGo.UsersService/Dockerfile ;;
+        pharmacy) image=pharmago-pharmacy-service; context=Backend;  dockerfile=PharmaGo.PharmacyService/Dockerfile ;;
+        gateway)  image=pharmago-api-gateway;      context=Backend;  dockerfile=PharmaGo.ApiGateway/Dockerfile ;;
+        ui)       image=pharmago-ui;               context=Frontend; dockerfile=Dockerfile ;;
+        *) echo "Error: servicio desconocido '$service'. Válidos: users, pharmacy, gateway, ui"; exit 1 ;;
+    esac
+
+    echo ""
+    echo "  - $image:$TAG..."
+    cd "$CODE_DIR/$context"
+    docker build -f "$dockerfile" -t "$image:$TAG" -t "$image:latest" .
+    minikube image load "$image:$TAG"
+    minikube image load "$image:latest"
+done
+
+cd "$SCRIPT_DIR"
+printf '%s' "$TAG" > "$SCRIPT_DIR/.image-tag"
+
 echo ""
-echo "Construyendo imágenes de backend..."
-cd "$CODE_DIR/Backend"
-
-echo "  - pharmago-users-service..."
-docker build -f PharmaGo.UsersService/Dockerfile -t pharmago-users-service:latest .
-minikube image load pharmago-users-service:latest
-
-echo "  - pharmago-pharmacy-service..."
-docker build -f PharmaGo.PharmacyService/Dockerfile -t pharmago-pharmacy-service:latest .
-minikube image load pharmago-pharmacy-service:latest
-
-echo "  - pharmago-api-gateway..."
-docker build -f PharmaGo.ApiGateway/Dockerfile -t pharmago-api-gateway:latest .
-minikube image load pharmago-api-gateway:latest
-
-echo ""
-echo "Construyendo imagen de frontend..."
-cd "$CODE_DIR/Frontend"
-
-echo "  - pharmago-ui..."
-docker build -f Dockerfile -t pharmago-ui:latest .
-minikube image load pharmago-ui:latest
-
-echo ""
-echo "=== Imágenes construidas y cargadas exitosamente ==="
+echo "=== Imágenes construidas y cargadas exitosamente (tag: $TAG) ==="
+echo "Para desplegarlas sin downtime: ./deploy.sh ${SERVICES[*]}"
 echo ""
 echo "Verificando imágenes en Minikube..."
 minikube image ls | grep pharmago
-
-cd "$SCRIPT_DIR"
-

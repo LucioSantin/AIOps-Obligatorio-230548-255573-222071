@@ -220,6 +220,130 @@ Luego aplica los cambios:
 kubectl apply -f deployments/<component>/<deployment>.yaml
 ```
 
+## Despliegues seguros (sin downtime)
+
+**Requerimiento**: el sistema debe poder reemplazar sus componentes garantizando 100% de disponibilidad.
+
+### Técnica elegida: Rolling Update
+
+Los componentes propios (`pharmago-api-gateway`, `pharmago-users-service`, `pharmago-pharmacy-service` y `pharmago-ui`) se actualizan con la estrategia **RollingUpdate** de Kubernetes, configurada para que nunca haya cero réplicas disponibles:
+
+```yaml
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 1        # se permite 1 pod extra por encima de replicas durante el cambio
+    maxUnavailable: 0  # nunca se baja un pod viejo antes de tener el nuevo READY
+```
+
+Secuencia de un reemplazo (con `replicas: 1`):
+
+1. Se crea el pod con la versión nueva **al lado** del viejo, que sigue atendiendo todo el tráfico.
+2. El pod nuevo pasa sus probes (`startupProbe` y luego `readinessProbe` contra `/health`). Recién ahí el Service lo agrega a sus endpoints y empieza a recibir tráfico.
+3. Kubernetes marca el pod viejo para terminar y el Service lo quita de sus endpoints.
+4. El hook `preStop` (`sleep 10`) retiene el apagado del pod viejo durante 10 segundos, para que kube-proxy en todos los nodos termine de dejar de enrutarle tráfico y para que los requests en curso terminen. Después el proceso recibe `SIGTERM` y se apaga (`terminationGracePeriodSeconds: 30`).
+
+Si la versión nueva nunca llega a READY (no arranca, falla el health check, etc.), el pod viejo **sigue atendiendo**: el despliegue se queda esperando y el script `deploy` hace `kubectl rollout undo` automáticamente.
+
+Piezas que lo hacen posible:
+
+| Pieza | Para qué sirve |
+|---|---|
+| `strategy` con `maxSurge: 1` / `maxUnavailable: 0` | Siempre hay al menos una réplica atendiendo |
+| `readinessProbe` (`/health`) | El tráfico solo llega a pods que están listos de verdad |
+| `startupProbe` | Le da margen al arranque sin que la liveness lo mate |
+| `lifecycle.preStop` + `terminationGracePeriodSeconds` | Apagado ordenado: sin requests cortados al bajar el pod viejo |
+| Tags de imagen versionados (`<commit>` o `<commit>-dirty-<timestamp>`) | Cada despliegue es un cambio real y trazable de imagen, y se puede volver a cualquier versión |
+| Anti-afinidad que excluye al propio servicio | Permite que versión nueva y vieja del mismo servicio convivan en un nodo durante el cambio, sin dejar que dos microservicios distintos compartan nodo |
+
+#### Interacción con la anti-afinidad
+
+Cada microservicio de backend debe correr en un nodo distinto. Con 3 nodos y 3 servicios, todos los nodos están ocupados, así que el pod nuevo de un servicio solo puede ir al nodo donde está **su propia** versión vieja. Por eso la regla es "ningún pod `tier=backend` de **otra** app en mi nodo":
+
+```yaml
+podAntiAffinity:
+  requiredDuringSchedulingIgnoredDuringExecution:
+  - labelSelector:
+      matchExpressions:
+      - key: tier
+        operator: In
+        values: [backend]
+      - key: app
+        operator: NotIn
+        values: [pharmago-users-service]   # el propio servicio
+    topologyKey: kubernetes.io/hostname
+```
+
+Con la regla anterior (`tier=backend` a secas), el pod nuevo quedaba `Pending` para siempre y el despliegue nunca terminaba.
+
+### Alternativas consideradas
+
+- **Recreate**: baja todos los pods y después levanta los nuevos. Simple, pero hay downtime. Descartada.
+- **Blue/Green**: dos Deployments completos (blue y green) y se cambia el selector del Service de uno al otro. Permite volver atrás al instante, pero duplica los recursos de todos los servicios y, con la restricción de un microservicio por nodo, necesitaría el doble de nodos. Descartada por costo.
+- **Canary**: se manda un porcentaje del tráfico a la versión nueva. Requiere réplicas extra o un service mesh / ingress con pesos. Es más útil para validar versiones con usuarios reales que para garantizar disponibilidad. Descartada por complejidad.
+
+Rolling update es nativo de Kubernetes, no requiere infraestructura adicional y, combinado con probes y `preStop`, garantiza que siempre haya una réplica sana atendiendo.
+
+### Cómo desplegar una nueva versión
+
+Desde `k8s/`:
+
+```powershell
+# Windows
+.\build-images.ps1 -Services gateway   # construye con tag versionado y lo carga en Minikube
+.\deploy.ps1 -Services gateway         # rolling update a esa versión
+```
+
+```bash
+# Linux / Mac
+./build-images.sh gateway
+./deploy.sh gateway
+```
+
+Servicios válidos: `users`, `pharmacy`, `gateway`, `ui` (sin argumentos se usan todos).
+
+- El tag se calcula con el hash corto del commit; si hay cambios sin commitear en `Backend/` o `Frontend/` se agrega `-dirty-<timestamp>`. Se guarda en `.image-tag`.
+- `deploy` hace `kubectl set image`, espera con `kubectl rollout status` y, si falla, hace `kubectl rollout undo`.
+- Historial y vuelta atrás:
+
+  ```bash
+  kubectl rollout history deployment/pharmago-api-gateway -n pharmago
+  .\deploy.ps1 -Services gateway -Tag <tag-anterior>      # o: kubectl rollout undo deployment/pharmago-api-gateway -n pharmago
+  ```
+
+**Nota**: `apply-k8s` es para la instalación inicial (los manifiestos usan `:latest`). Para actualizar un cluster ya levantado usar `build-images` + `deploy`. Si se vuelve a correr `apply-k8s`, los deployments vuelven a `:latest` (también por rolling update, sin downtime).
+
+### Cómo demostrarlo
+
+`test-zero-downtime` levanta un pod con `curl` **dentro del cluster** que consulta en loop (cada ~0.2 s) los 4 Services mientras corre el despliegue, y al final informa cuántas solicitudes fallaron:
+
+```powershell
+.\test-zero-downtime.ps1                     # despliega todo con el tag de .image-tag
+.\test-zero-downtime.ps1 -Services gateway   # solo un servicio
+.\test-zero-downtime.ps1 -Restart            # reemplaza los pods sin cambiar de imagen
+```
+
+```bash
+./test-zero-downtime.sh
+RESTART=1 ./test-zero-downtime.sh
+```
+
+Se mide desde adentro del cluster porque `kubectl port-forward` queda atado a un pod puntual y se corta cuando ese pod se reemplaza, lo que daría falsos negativos.
+
+Resultado obtenido (cluster de 3 nodos, desplegando una nueva versión de los 4 componentes en secuencia):
+
+```
+=== Resultado ===
+Ultimo conteo: STATS ok=1920 fail=0
+0 solicitudes fallidas durante el despliegue: disponibilidad 100%
+```
+
+### Limitaciones
+
+- **Base de datos**: `pharmago-db` (SQL Server) usa un volumen `ReadWriteOnce` y no admite dos instancias a la vez, por lo que su reemplazo implica un corte breve. El requerimiento se cumple para los microservicios y el frontend.
+- **Componentes de observabilidad** (Prometheus, Grafana, Elasticsearch, Kibana): no forman parte del camino de atención a usuarios; se mantienen con su configuración actual.
+- **Cambios en las reglas de anti-afinidad**: la anti-afinidad se evalúa también desde los pods existentes. Si se cambia la regla, los pods viejos (con la regla anterior) pueden bloquear a los nuevos; en ese caso hay que reemplazar los pods viejos de a uno (`kubectl delete pod ...`).
+
 ## Troubleshooting
 
 ### Pods no se inician (Pending / telemetría)
@@ -446,9 +570,11 @@ k8s/
 │       ├── grafana-service.yaml
 │       ├── elasticsearch-service.yaml
 │       └── kibana-service.yaml
-├── build-images.sh
-├── apply-k8s.sh
-├── cleanup.sh
+├── build-images.sh / .ps1        # construye imágenes con tag versionado
+├── deploy.sh / .ps1              # rolling update a una versión (con rollback automático)
+├── test-zero-downtime.sh / .ps1  # prueba de disponibilidad durante un despliegue
+├── apply-k8s.sh / .ps1           # instalación inicial
+├── cleanup.sh / .ps1
 └── README-k8s.md
 ```
 

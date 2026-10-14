@@ -5,6 +5,13 @@ metadata:
   namespace: pharmago
 spec:
   replicas: 1
+  # Rolling update sin downtime: primero se levanta el pod nuevo y solo cuando
+  # está READY se baja el viejo (nunca hay 0 réplicas disponibles).
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app: pharmago-ui
@@ -21,6 +28,7 @@ spec:
               - key: node-type
                 operator: In
                 values: [frontend, all]
+      terminationGracePeriodSeconds: 30
       containers:
       - name: pharmago-ui
         image: pharmago-ui:latest
@@ -34,6 +42,12 @@ spec:
           limits:
             memory: "256Mi"
             cpu: "200m"
+        # Al terminar, esperar a que el Service deje de enrutar a este pod
+        # antes de que el proceso reciba SIGTERM (evita requests cortados).
+        lifecycle:
+          preStop:
+            exec:
+              command: ["sleep", "10"]
         readinessProbe:
           httpGet:
             path: /

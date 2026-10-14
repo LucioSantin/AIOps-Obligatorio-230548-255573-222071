@@ -39,6 +39,8 @@ builder.Services.AddReverseProxy()
         });
     });
 
+builder.Services.AddHealthChecks();
+
 builder.Services.AddSingleton<ICustomMetrics, CustomMetrics>();
 
 builder.Services.AddOpenTelemetry()
@@ -90,6 +92,7 @@ else if (rateLimitMode.Equals("User", StringComparison.OrdinalIgnoreCase))
 
 app.UseAuthorization();
 
+app.MapHealthChecks("/health");
 app.MapReverseProxy();
 app.MapPrometheusScrapingEndpoint();
 
