@@ -12,6 +12,7 @@ spec:
     metadata:
       labels:
         app: pharmago-api-gateway
+        tier: backend
     spec:
       affinity:
         nodeAffinity:
@@ -21,6 +22,12 @@ spec:
               - key: node-type
                 operator: In
                 values: [backend, all]
+        podAntiAffinity:                          
+            requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  tier: backend
+              topologyKey: kubernetes.io/hostname
       containers:
       - name: pharmago-api-gateway
         image: pharmago-api-gateway:latest
