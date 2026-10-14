@@ -1,17 +1,27 @@
 # Despliegue de PharmaGo en Kubernetes (Minikube)
 
-Esta guía describe cómo desplegar la aplicación PharmaGo en un cluster de Kubernetes usando Minikube con un solo nodo.
+Esta guía describe cómo desplegar la aplicación PharmaGo en un cluster de Kubernetes usando Minikube con 3 nodos.
 
 ## Arquitectura
 
-La aplicación se ejecuta en un único nodo (minikube) con todos los componentes:
+Componentes:
 
 - **Frontend**: pharmago-ui
 - **Backend**: pharmago-api-gateway, pharmago-users-service, pharmago-pharmacy-service
 - **Base de datos**: pharmago-db (SQL Server Express)
 - **Telemetría y observabilidad**: otlp-collector, prometheus, grafana, elasticsearch, kibana, fluent-bit
 
-**Requisito de memoria**: El nodo debe tener al menos 5-6GB de RAM para soportar Elasticsearch (1.5Gi), Kibana (2Gi), SQL Server Express (1.5Gi) y el resto de servicios.
+Distribución en nodos (etiqueta `node-type`):
+
+| Nodo | `node-type` | Qué corre |
+|---|---|---|
+| `minikube` | `all` | Frontend, base de datos, observabilidad y **un** microservicio de backend |
+| `minikube-m02` | `backend` | Un microservicio de backend |
+| `minikube-m03` | `backend` | Un microservicio de backend |
+
+Los microservicios de backend tienen una regla de `podAntiAffinity` obligatoria: dos microservicios distintos nunca comparten nodo. Por eso hacen falta 3 nodos aptos para backend (uno por microservicio). Qué microservicio cae en cada nodo lo decide el scheduler. `fluent-bit` y `node-exporter` son DaemonSets y corren en los 3 nodos.
+
+**Requisito de memoria**: Cada nodo de Minikube recibe la memoria indicada en `--memory`. El nodo `minikube` necesita al menos 5-6GB de RAM para soportar Elasticsearch (1.5Gi), Kibana (2Gi), SQL Server Express (1.5Gi) y el resto de servicios.
 
 ## Prerrequisitos
 
@@ -21,23 +31,28 @@ La aplicación se ejecuta en un único nodo (minikube) con todos los componentes
 
 ## Configuración Inicial
 
-### 1. Crear cluster Minikube (un nodo, 6GB RAM)
+### 1. Crear cluster Minikube (3 nodos, 6GB RAM)
 
 ```bash
-# Crear cluster con suficiente memoria para telemetría (Elasticsearch, Kibana, etc.)
-minikube start --memory=6144 --cpus=4
+# Crear cluster de 3 nodos con suficiente memoria para telemetría (Elasticsearch, Kibana, etc.)
+minikube start --nodes 3 --memory=6144 --cpus=4
 
-# Verificar nodo
+# Verificar nodos (minikube, minikube-m02, minikube-m03)
 kubectl get nodes
 ```
 
-**Importante**: Usa al menos 6GB de RAM. Con menos, Elasticsearch y otros pods de observabilidad pueden fallar por OOM.
+**Importante**: Usa al menos 6GB de RAM. Con menos, Elasticsearch y otros pods de observabilidad pueden fallar por OOM. Si el cluster ya existía con 1 nodo, hay que recrearlo (`minikube delete`) o agregar nodos con `minikube node add`.
 
-### 2. Etiquetar nodo
+### 2. Etiquetar nodos
 
-El script `apply-k8s.sh` etiqueta el nodo automáticamente con `node-type=all`. Si despliegas manualmente:
+Los scripts `apply-k8s.sh` / `apply-k8s.ps1` etiquetan los nodos automáticamente (el primero `node-type=all`, el resto `node-type=backend`). Si despliegas manualmente:
 ```bash
 kubectl label nodes minikube node-type=all --overwrite
+kubectl label nodes minikube-m02 node-type=backend --overwrite
+kubectl label nodes minikube-m03 node-type=backend --overwrite
+
+# Verificar
+kubectl get nodes -L node-type
 ```
 
 ### 3. Construir y cargar imágenes Docker
@@ -49,8 +64,10 @@ kubectl label nodes minikube node-type=all --overwrite
 ```bash
 cd k8s
 chmod +x build-images.sh
-./build-images.sh
+./build-images.sh          # Windows: .\build-images.ps1
 ```
+
+Cada imagen queda etiquetada con un tag versionado y con `:latest` (ver [Despliegues seguros](#despliegues-seguros-sin-downtime)).
 
 #### Opción 2: Manual
 
@@ -74,7 +91,7 @@ docker build -f Dockerfile -t pharmago-ui:latest .
 minikube image load pharmago-ui:latest
 ```
 
-**Nota**: `minikube image load` carga las imágenes en el nodo de Minikube.
+**Nota**: `minikube image load` carga las imágenes en todos los nodos de Minikube.
 
 ## Despliegue
 
@@ -85,7 +102,7 @@ minikube image load pharmago-ui:latest
 ```bash
 cd k8s
 chmod +x apply-k8s.sh
-./apply-k8s.sh
+./apply-k8s.sh          # Windows: .\apply-k8s.ps1
 ```
 
 ### Opción 2: Despliegue manual
@@ -135,8 +152,11 @@ kubectl apply -f deployments/frontend/
 # Ver todos los pods
 kubectl get pods -n pharmago -o wide
 
-# Ver pods por nodo (con un nodo, todos aparecen en minikube)
-kubectl get pods -n pharmago -o wide --field-selector spec.nodeName=minikube
+# Ver pods de un nodo puntual
+kubectl get pods -n pharmago -o wide --field-selector spec.nodeName=minikube-m02
+
+# Verificar que cada microservicio de backend está en un nodo distinto
+kubectl get pods -n pharmago -o wide -l tier=backend
 ```
 
 ### Ver servicios
@@ -346,24 +366,26 @@ Ultimo conteo: STATS ok=1920 fail=0
 
 ## Troubleshooting
 
-### Pods no se inician (Pending / telemetría)
+### Pods no se inician (Pending)
 
-Si los pods de telemetría (otel-collector, prometheus, grafana, elasticsearch, kibana, fluent-bit) quedan en `Pending`:
+Si algún pod queda en `Pending`:
 
-1. **Falta etiqueta en el nodo**: Los pods requieren `node-type=all`.
-   - Usa el script `apply-k8s.sh` que etiqueta automáticamente, o
-   - Manual: `kubectl label nodes minikube node-type=all --overwrite`
-   
+1. **Falta etiqueta en los nodos**: frontend y ops requieren un nodo `node-type=all`; el backend, nodos `backend` o `all`.
+   - Usa el script `apply-k8s.sh` / `apply-k8s.ps1` que etiqueta automáticamente, o
+   - Manual: ver [Etiquetar nodos](#2-etiquetar-nodos)
+
    ```bash
-   kubectl get nodes --show-labels
+   kubectl get nodes -L node-type
    ```
 
-2. Verificar eventos del pod:
+2. **Microservicios de backend en Pending con `didn't match pod anti-affinity rules`**: hay menos nodos aptos para backend que microservicios. Cada uno necesita su propio nodo: crear el cluster con `--nodes 3` (o `minikube node add`) y etiquetar el nodo nuevo con `node-type=backend`.
+
+3. Verificar eventos del pod:
    ```bash
    kubectl describe pod <pod-name> -n pharmago
    ```
 
-3. Ver logs:
+4. Ver logs:
    ```bash
    kubectl logs <pod-name> -n pharmago
    ```

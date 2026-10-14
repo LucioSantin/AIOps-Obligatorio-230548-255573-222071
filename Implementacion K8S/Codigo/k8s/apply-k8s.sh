@@ -15,7 +15,7 @@ fi
 # Verificar que minikube está corriendo
 if ! minikube status &> /dev/null; then
     echo "Error: Minikube no está corriendo."
-    echo "Ejecuta: minikube start --memory=6144 --cpus=4"
+    echo "Ejecuta: minikube start --nodes 3 --memory=6144 --cpus=4"
     exit 1
 fi
 
@@ -28,6 +28,9 @@ for n in "${NODES[@]:1}"; do
     kubectl label nodes "$n" node-type=backend --overwrite
     echo "   $n -> node-type=backend"
 done
+if [ ${#NODES[@]} -lt 3 ]; then
+    echo "   Atención: hay ${#NODES[@]} nodo(s). Los microservicios de backend necesitan uno cada uno: minikube start --nodes 3"
+fi
 
 echo ""
 echo "2. Creando namespace..."
