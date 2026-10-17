@@ -48,7 +48,8 @@ temp/
 *.tmp
 
 # === Kubernetes / local ===
-k8s/.port-forward.pids
+**/k8s/.port-forward.pids
+**/k8s/.image-tag
 
 # === Secrets (evitar subir credenciales) ===
 *.pfx

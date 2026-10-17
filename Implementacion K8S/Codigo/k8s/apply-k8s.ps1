@@ -12,25 +12,24 @@ if (-not (Get-Command kubectl -ErrorAction SilentlyContinue)) {
 # Verificar que el cluster Kubernetes está accesible
 $nodes = kubectl get nodes -o jsonpath='{.items[*].metadata.name}' 2>&1
 if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrEmpty($nodes)) {
-    Write-Host "Error: No hay cluster Kubernetes accesible. Si usas Minikube: minikube start (o minikube start --nodes 3)" -ForegroundColor Red
+    Write-Host "Error: No hay cluster Kubernetes accesible. Si usas Minikube: minikube start --nodes 3 --memory=6144 --cpus=4" -ForegroundColor Red
     exit 1
 }
 
-# Etiquetar nodos (requerido para que los pods de telemetría se programen)
+# Etiquetar nodos (requerido para que los pods se programen)
+# El primer nodo aloja frontend, ops y un microservicio de backend (node-type=all);
+# el resto quedan para backend. Cada microservicio de backend necesita su propio
+# nodo (anti-afinidad), así que con 3 microservicios hacen falta 3 nodos.
 Write-Host "`n1. Etiquetando nodos..." -ForegroundColor Yellow
 $nodeList = $nodes.Trim().Split(" ", [StringSplitOptions]::RemoveEmptyEntries)
-if ($nodeList.Count -eq 1) {
-    Write-Host "   Cluster de 1 nodo detectado. Etiquetando $($nodeList[0]) con node-type=all" -ForegroundColor Cyan
-    kubectl label nodes $nodeList[0] node-type=all --overwrite 2>$null
-} elseif ($nodeList.Count -ge 3) {
-    Write-Host "   Cluster multi-nodo detectado. Etiquetando nodos..." -ForegroundColor Cyan
-    kubectl label nodes minikube node-type=frontend --overwrite 2>$null
-    kubectl label nodes minikube-m02 node-type=backend --overwrite 2>$null
-    kubectl label nodes minikube-m03 node-type=ops --overwrite 2>$null
-} else {
-    $firstNode = $nodeList[0]
-    Write-Host "   Etiquetando nodo $firstNode con node-type=all (compatibilidad)" -ForegroundColor Cyan
-    kubectl label nodes $firstNode node-type=all --overwrite 2>$null
+kubectl label nodes $nodeList[0] node-type=all --overwrite | Out-Null
+Write-Host "   $($nodeList[0]) -> node-type=all" -ForegroundColor Cyan
+foreach ($node in ($nodeList | Select-Object -Skip 1)) {
+    kubectl label nodes $node node-type=backend --overwrite | Out-Null
+    Write-Host "   $node -> node-type=backend" -ForegroundColor Cyan
+}
+if ($nodeList.Count -lt 3) {
+    Write-Host "   Atencion: hay $($nodeList.Count) nodo(s). Los microservicios de backend necesitan uno cada uno: minikube start --nodes 3" -ForegroundColor Yellow
 }
 Write-Host "   Verificar: kubectl get nodes --show-labels" -ForegroundColor Gray
 
