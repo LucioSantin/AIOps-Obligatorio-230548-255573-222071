@@ -335,7 +335,7 @@ Servicios válidos: `users`, `pharmacy`, `gateway`, `ui` (sin argumentos se usan
 
 ### Cómo demostrarlo
 
-`test-zero-downtime` levanta un pod con `curl` **dentro del cluster** que consulta en loop (cada ~0.2 s) los 4 Services mientras corre el despliegue, y al final informa cuántas solicitudes fallaron:
+`test-zero-downtime` levanta un pod con `curl` **dentro del cluster** que consulta en loop (cada ~0.2 s) los 4 Services y el camino gateway → users (`/test-health`, exento del rate limit) mientras corre el despliegue, y al final informa cuántas solicitudes fallaron:
 
 ```powershell
 .\test-zero-downtime.ps1                     # despliega todo con el tag de .image-tag

@@ -6,8 +6,8 @@
 #   .\test-zero-downtime.ps1 -Restart                # sin imagen nueva: kubectl rollout restart
 #
 # Levanta un pod con curl DENTRO del cluster que consulta en loop los Services
-# (gateway, users, pharmacy, ui) mientras corre el despliegue, y al final informa
-# cuantas solicitudes fallaron. Se prueba desde adentro porque un port-forward
+# (gateway, users, pharmacy, ui) y el camino gateway -> users (/test-health)
+# mientras corre el despliegue, y al final informa cuantas solicitudes fallaron. Se prueba desde adentro porque un port-forward
 # queda atado a un pod puntual y se corta en cada rollout.
 
 param(
@@ -20,12 +20,13 @@ $namespace = "pharmago"
 $probe = "zero-downtime-probe"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
-# Cada iteracion consulta los 4 Services; imprime cada falla y un resumen cada 20 iteraciones
+# Cada iteracion consulta los 4 Services y gateway -> users (/test-health, exento del rate limit
+# en appsettings.json); imprime cada falla y un resumen cada 20 iteraciones
 # (sin comillas dobles: PowerShell 5.1 las rompe al pasar argumentos a kubectl)
 $loop = @'
 ok=0; fail=0; i=0
 while true; do
-  for u in http://pharmago-api-gateway/metrics http://pharmago-users-service/health http://pharmago-pharmacy-service/health http://pharmago-ui/; do
+  for u in http://pharmago-api-gateway/metrics http://pharmago-api-gateway/test-health http://pharmago-users-service/health http://pharmago-pharmacy-service/health http://pharmago-ui/; do
     c=$(curl -s -o /dev/null -m 3 -w '%{http_code}' $u)
     if [ x$c = x200 ]; then ok=$((ok+1)); else fail=$((fail+1)); echo $(date +%T) FAIL $c $u; fi
   done
@@ -74,6 +75,12 @@ $failures = @($logs | Where-Object { $_ -cmatch " FAIL " })
 $stats = @($logs | Where-Object { $_ -match "^STATS" }) | Select-Object -Last 1
 
 Write-Host "`n=== Resultado ===" -ForegroundColor Green
+# Si el despliegue fallo se avisa primero: la disponibilidad puede ser 100% igual
+# (los pods viejos siguieron atendiendo), pero la version nueva no quedo aplicada
+if ($deployExit -ne 0) {
+    Write-Host "DESPLIEGUE FALLIDO: la version nueva NO quedo aplicada (ver salida de arriba)" -ForegroundColor Red
+    Write-Host "La disponibilidad de abajo corresponde al intento de despliegue" -ForegroundColor Yellow
+}
 Write-Host "Ultimo conteo: $stats"
 if ($failures.Count -eq 0) {
     Write-Host "0 solicitudes fallidas durante el despliegue: disponibilidad 100%" -ForegroundColor Green
@@ -82,6 +89,5 @@ if ($failures.Count -eq 0) {
     $failures | ForEach-Object { Write-Host "  $_" }
 }
 if ($deployExit -ne 0) {
-    Write-Host "Atencion: el despliegue termino con error (ver salida de arriba)" -ForegroundColor Yellow
     exit 1
 }

@@ -33,17 +33,43 @@ if [ ${#SERVICES[@]} -eq 0 ]; then
     SERVICES=(users pharmacy gateway ui)
 fi
 
+# servicio -> Deployment (el contenedor y la imagen tienen el mismo nombre)
+deployment_for() {
+    case "$1" in
+        users)    echo pharmago-users-service ;;
+        pharmacy) echo pharmago-pharmacy-service ;;
+        gateway)  echo pharmago-api-gateway ;;
+        ui)       echo pharmago-ui ;;
+        *) return 1 ;;
+    esac
+}
+
+# Antes de tocar nada, verificar que todas las imágenes estén cargadas en Minikube.
+# Los Deployments usan imagePullPolicy: Never, así que una imagen faltante no falla al
+# instante: el pod queda en ErrImageNeverPull hasta que vence el timeout del rollout.
+IMAGES="$(minikube image ls --format=short 2>/dev/null || true)"
+MISSING=()
+for service in "${SERVICES[@]}"; do
+    if ! deployment="$(deployment_for "$service")"; then
+        echo "Error: servicio desconocido '$service'. Válidos: users, pharmacy, gateway, ui"
+        exit 1
+    fi
+    if ! echo "$IMAGES" | grep -Fqx "docker.io/library/$deployment:$TAG"; then
+        MISSING+=("$deployment:$TAG")
+    fi
+done
+if [ ${#MISSING[@]} -gt 0 ]; then
+    echo "Error: estas imágenes no están cargadas en Minikube (no se desplegó nada):"
+    printf '  - %s\n' "${MISSING[@]}"
+    echo "Cada corrida de build-images.sh genera un tag nuevo si hay cambios sin commitear,"
+    echo "así que construí juntos todos los servicios a desplegar: ./build-images.sh ${SERVICES[*]}"
+    exit 1
+fi
+
 echo "=== Desplegando versión $TAG ==="
 
 for service in "${SERVICES[@]}"; do
-    # servicio -> Deployment (el contenedor y la imagen tienen el mismo nombre)
-    case "$service" in
-        users)    deployment=pharmago-users-service ;;
-        pharmacy) deployment=pharmago-pharmacy-service ;;
-        gateway)  deployment=pharmago-api-gateway ;;
-        ui)       deployment=pharmago-ui ;;
-        *) echo "Error: servicio desconocido '$service'. Válidos: users, pharmacy, gateway, ui"; exit 1 ;;
-    esac
+    deployment="$(deployment_for "$service")"
 
     echo ""
     echo "- $deployment -> $deployment:$TAG"

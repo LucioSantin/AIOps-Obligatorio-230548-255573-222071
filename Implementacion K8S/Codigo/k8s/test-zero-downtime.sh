@@ -7,8 +7,8 @@
 #   RESTART=1 ./test-zero-downtime.sh         # sin imagen nueva: kubectl rollout restart
 #
 # Levanta un pod con curl DENTRO del cluster que consulta en loop los Services
-# (gateway, users, pharmacy, ui) mientras corre el despliegue, y al final informa
-# cuántas solicitudes fallaron. Se prueba desde adentro porque un port-forward
+# (gateway, users, pharmacy, ui) y el camino gateway -> users (/test-health)
+# mientras corre el despliegue, y al final informa cuántas solicitudes fallaron. Se prueba desde adentro porque un port-forward
 # queda atado a un pod puntual y se corta en cada rollout.
 
 NAMESPACE=pharmago
@@ -20,11 +20,12 @@ if [ ${#SERVICES[@]} -eq 0 ]; then
     SERVICES=(users pharmacy gateway ui)
 fi
 
-# Cada iteración consulta los 4 Services; imprime cada falla y un resumen cada 20 iteraciones
+# Cada iteración consulta los 4 Services y gateway -> users (/test-health, exento del rate limit
+# en appsettings.json); imprime cada falla y un resumen cada 20 iteraciones
 LOOP='
 ok=0; fail=0; i=0
 while true; do
-  for u in http://pharmago-api-gateway/metrics http://pharmago-users-service/health http://pharmago-pharmacy-service/health http://pharmago-ui/; do
+  for u in http://pharmago-api-gateway/metrics http://pharmago-api-gateway/test-health http://pharmago-users-service/health http://pharmago-pharmacy-service/health http://pharmago-ui/; do
     c=$(curl -s -o /dev/null -m 3 -w "%{http_code}" "$u")
     if [ "$c" = "200" ]; then ok=$((ok+1)); else fail=$((fail+1)); echo "$(date +%T) FAIL $c $u"; fi
   done
@@ -72,6 +73,12 @@ STATS="$(echo "$LOGS" | grep '^STATS' | tail -1)"
 
 echo ""
 echo "=== Resultado ==="
+# Si el despliegue falló se avisa primero: la disponibilidad puede ser 100% igual
+# (los pods viejos siguieron atendiendo), pero la versión nueva no quedó aplicada
+if [ "$DEPLOY_EXIT" -ne 0 ]; then
+    echo "DESPLIEGUE FALLIDO: la versión nueva NO quedó aplicada (ver salida de arriba)"
+    echo "La disponibilidad de abajo corresponde al intento de despliegue"
+fi
 echo "Último conteo: $STATS"
 if [ -z "$FAILURES" ]; then
     echo "0 solicitudes fallidas durante el despliegue: disponibilidad 100%"
@@ -80,6 +87,5 @@ else
     echo "$FAILURES" | sed 's/^/  /'
 fi
 if [ "$DEPLOY_EXIT" -ne 0 ]; then
-    echo "Atención: el despliegue terminó con error (ver salida de arriba)"
     exit 1
 fi

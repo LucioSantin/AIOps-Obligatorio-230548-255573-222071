@@ -38,13 +38,30 @@ $catalog = @{
     "ui"       = "pharmago-ui"
 }
 
-Write-Host "=== Desplegando version $Tag ===" -ForegroundColor Green
-
+# Antes de tocar nada, verificar que todas las imagenes esten cargadas en Minikube.
+# Los Deployments usan imagePullPolicy: Never, asi que una imagen faltante no falla al
+# instante: el pod queda en ErrImageNeverPull hasta que vence el timeout del rollout.
+$images = @(minikube image ls --format=short 2>$null | ForEach-Object { $_.Trim() })
+$missing = @()
 foreach ($service in $Services) {
     if (-not $catalog.ContainsKey($service)) {
         Write-Host "Error: servicio desconocido '$service'. Validos: users, pharmacy, gateway, ui" -ForegroundColor Red
         exit 1
     }
+    $image = "$($catalog[$service]):$Tag"
+    if ($images -notcontains "docker.io/library/$image") { $missing += $image }
+}
+if ($missing.Count -gt 0) {
+    Write-Host "Error: estas imagenes no estan cargadas en Minikube (no se desplego nada):" -ForegroundColor Red
+    $missing | ForEach-Object { Write-Host "  - $_" }
+    Write-Host "Cada corrida de build-images genera un tag nuevo si hay cambios sin commitear,"
+    Write-Host "asi que construi juntos todos los servicios a desplegar: .\build-images.ps1 -Services $($Services -join ',')"
+    exit 1
+}
+
+Write-Host "=== Desplegando version $Tag ===" -ForegroundColor Green
+
+foreach ($service in $Services) {
     $deployment = $catalog[$service]
 
     Write-Host "`n- $deployment -> ${deployment}:$Tag" -ForegroundColor Cyan
