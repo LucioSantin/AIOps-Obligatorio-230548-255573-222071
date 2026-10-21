@@ -14,20 +14,54 @@ data:
         static_configs:
           - targets: ['otlp-collector:8889']
       
+      # Se scrapea cada pod por separado porque vía Service cada scrape cae en una réplica distinta
       - job_name: 'users-service'
         metrics_path: /metrics
-        static_configs:
-          - targets: ['pharmago-users-service:80']
-      
+        kubernetes_sd_configs:
+        - role: pod
+          namespaces:
+            names: [pharmago]
+        relabel_configs:
+        - source_labels: [__meta_kubernetes_pod_label_app]
+          regex: pharmago-users-service
+          action: keep
+        - source_labels: [__meta_kubernetes_pod_container_port_number]
+          regex: "80"
+          action: keep
+        - source_labels: [__meta_kubernetes_pod_name]
+          target_label: pod
+
       - job_name: 'pharmacy-service'
         metrics_path: /metrics
-        static_configs:
-          - targets: ['pharmago-pharmacy-service:80']
-      
+        kubernetes_sd_configs:
+        - role: pod
+          namespaces:
+            names: [pharmago]
+        relabel_configs:
+        - source_labels: [__meta_kubernetes_pod_label_app]
+          regex: pharmago-pharmacy-service
+          action: keep
+        - source_labels: [__meta_kubernetes_pod_container_port_number]
+          regex: "80"
+          action: keep
+        - source_labels: [__meta_kubernetes_pod_name]
+          target_label: pod
+
       - job_name: 'api-gateway'
         metrics_path: /metrics
-        static_configs:
-          - targets: ['pharmago-api-gateway:80']
+        kubernetes_sd_configs:
+        - role: pod
+          namespaces:
+            names: [pharmago]
+        relabel_configs:
+        - source_labels: [__meta_kubernetes_pod_label_app]
+          regex: pharmago-api-gateway
+          action: keep
+        - source_labels: [__meta_kubernetes_pod_container_port_number]
+          regex: "80"
+          action: keep
+        - source_labels: [__meta_kubernetes_pod_name]
+          target_label: pod
 
       - job_name: 'node-exporter'
         metrics_path: /metrics

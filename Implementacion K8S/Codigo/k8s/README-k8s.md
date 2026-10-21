@@ -19,7 +19,7 @@ Distribución en nodos (etiqueta `node-type`):
 | `minikube-m02` | `backend` | Un microservicio de backend |
 | `minikube-m03` | `backend` | Un microservicio de backend |
 
-Los microservicios de backend tienen una regla de `podAntiAffinity` obligatoria: dos microservicios distintos nunca comparten nodo. Por eso hacen falta 3 nodos aptos para backend (uno por microservicio). Qué microservicio cae en cada nodo lo decide el scheduler. `fluent-bit` y `node-exporter` son DaemonSets y corren en los 3 nodos.
+Los microservicios de backend tienen una regla de `podAntiAffinity` obligatoria: dos microservicios distintos nunca comparten nodo. Por eso hacen falta 3 nodos aptos para backend (uno por microservicio). Qué microservicio cae en cada nodo lo decide el scheduler. Las réplicas de un mismo microservicio comparten su nodo (`podAffinity` obligatoria hacia el propio servicio). `fluent-bit` y `node-exporter` son DaemonSets y corren en los 3 nodos.
 
 **Requisito de memoria**: Cada nodo de Minikube recibe la memoria indicada en `--memory`. El nodo `minikube` necesita al menos 5-6GB de RAM para soportar Elasticsearch (1.5Gi), Kibana (2Gi), SQL Server Express (1.5Gi) y el resto de servicios.
 
@@ -275,6 +275,7 @@ Piezas que lo hacen posible:
 | `lifecycle.preStop` + `terminationGracePeriodSeconds` | Apagado ordenado: sin requests cortados al bajar el pod viejo |
 | Tags de imagen versionados (`<commit>` o `<commit>-dirty-<timestamp>`) | Cada despliegue es un cambio real y trazable de imagen, y se puede volver a cualquier versión |
 | Anti-afinidad que excluye al propio servicio | Permite que versión nueva y vieja del mismo servicio convivan en un nodo durante el cambio, sin dejar que dos microservicios distintos compartan nodo |
+| Afinidad obligatoria hacia el propio servicio | Todas las réplicas y los pods nuevos de un servicio van a su nodo, sin quitarle el nodo a otro microservicio |
 
 #### Interacción con la anti-afinidad
 
@@ -295,6 +296,21 @@ podAntiAffinity:
 ```
 
 Con la regla anterior (`tier=backend` a secas), el pod nuevo quedaba `Pending` para siempre y el despliegue nunca terminaba.
+
+Además, todas las réplicas de un servicio se fuerzan al mismo nodo:
+
+```yaml
+podAffinity:
+  requiredDuringSchedulingIgnoredDuringExecution:
+  - labelSelector:
+      matchLabels:
+        app: pharmago-users-service
+    topologyKey: kubernetes.io/hostname
+```
+
+Sin esta regla, al levantar el cluster de cero el scheduler podía mandar la segunda réplica de un servicio a un nodo vacío (por una anti-afinidad *preferida* entre réplicas, o por el spread que aplica por defecto). Por ejemplo: `api-gateway` en los nodos A y C y `users-service` en B deja a `pharmacy-service` sin nodo, en `Pending` para siempre. La primera réplica se puede ubicar aunque todavía no exista ningún pod del servicio (Kubernetes lo permite cuando el pod cumple su propio término), así que el scheduler sigue eligiendo el nodo.
+
+Trade-off: como las réplicas comparten nodo, protegen ante la caída de un proceso o pod (lo que miden `inject-process-failure.sh` y `measure-mttr.sh`), pero no ante la caída del nodo. Con 3 nodos y un microservicio por nodo, no se pueden separar.
 
 ### Alternativas consideradas
 

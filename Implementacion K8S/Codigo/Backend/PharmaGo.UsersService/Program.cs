@@ -2,6 +2,7 @@ using PharmaGo.UsersService.Factory;
 using PharmaGo.UsersService.Filters;
 using System.Diagnostics.CodeAnalysis;
 using Instrumentation;
+using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -14,7 +15,9 @@ builder.Services.AddControllers(options => options.Filters.Add(typeof(ExceptionF
 
 builder.Services.AddControllers();
 
-builder.Services.AddHealthChecks();
+// /health falla (503) si no se puede conectar a la base
+builder.Services.AddPharmaGoHealthChecks()
+    .AddDbContextCheck<DbContext>("database");
 
 builder.Services.AddPharmaGoOpenTelemetryMetrics("PharmaGo.UsersService");
 
@@ -46,7 +49,7 @@ app.UseServiceCorrelationScope();
 
 app.UseAuthorization();
 
-app.MapHealthChecks("/health");
+app.MapPharmaGoHealthChecks();
 app.UseMetricsMiddleware();
 
 app.MapControllers();
