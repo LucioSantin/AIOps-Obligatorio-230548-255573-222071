@@ -39,7 +39,10 @@ builder.Services.AddReverseProxy()
         });
     });
 
-builder.Services.AddHealthChecks();
+// El gateway no tiene base, /health solo indica que el proceso responde
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddSingleton<IStructuredLogger, StructuredLogger>();
+builder.Services.AddPharmaGoHealthChecks();
 
 builder.Services.AddSingleton<ICustomMetrics, CustomMetrics>();
 
@@ -92,7 +95,7 @@ else if (rateLimitMode.Equals("User", StringComparison.OrdinalIgnoreCase))
 
 app.UseAuthorization();
 
-app.MapHealthChecks("/health");
+app.MapPharmaGoHealthChecks();
 app.MapReverseProxy();
 app.MapPrometheusScrapingEndpoint();
 

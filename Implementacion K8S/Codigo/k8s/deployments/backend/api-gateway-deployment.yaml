@@ -4,7 +4,8 @@ metadata:
   name: pharmago-api-gateway
   namespace: pharmago
 spec:
-  replicas: 1
+  # 2 réplicas para que, mientras un pod se recrea, el otro siga atendiendo
+  replicas: 2
   # Rolling update sin downtime: primero se levanta el pod nuevo y solo cuando
   # está READY se baja el viejo (nunca hay 0 réplicas disponibles).
   strategy:
@@ -43,6 +44,14 @@ spec:
                 operator: NotIn
                 values: [pharmago-api-gateway]
             topologyKey: kubernetes.io/hostname
+          # Si hay más de un nodo posible, separar las réplicas del mismo servicio (en minikube no hay y comparten)
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: pharmago-api-gateway
+              topologyKey: kubernetes.io/hostname
       terminationGracePeriodSeconds: 30
       containers:
       - name: pharmago-api-gateway
@@ -67,25 +76,29 @@ spec:
           preStop:
             exec:
               command: ["sleep", "10"]
+        # La startupProbe cubre el arranque (hasta 60 s), por eso las otras no tienen initialDelay
         startupProbe:
           httpGet:
-            path: /health
+            path: /health/live
             port: 80
-          initialDelaySeconds: 15
-          periodSeconds: 10
-          failureThreshold: 15
+          periodSeconds: 2
+          timeoutSeconds: 2
+          failureThreshold: 30
+        # Saca el pod del Service tras ~4 s sin responder
         readinessProbe:
           httpGet:
-            path: /health
+            path: /health/live
             port: 80
-          initialDelaySeconds: 5
-          periodSeconds: 10
-          timeoutSeconds: 5
+          periodSeconds: 2
+          timeoutSeconds: 2
+          failureThreshold: 2
+        # Reinicia el contenedor tras ~15 s colgado
         livenessProbe:
           httpGet:
-            path: /health
+            path: /health/live
             port: 80
-          initialDelaySeconds: 60
-          periodSeconds: 30
-          timeoutSeconds: 5
-
+          periodSeconds: 5
+          timeoutSeconds: 2
+          failureThreshold: 3
+          # Un proceso colgado no atiende SIGTERM, no tiene sentido esperarle los 30 s del pod
+          terminationGracePeriodSeconds: 5
