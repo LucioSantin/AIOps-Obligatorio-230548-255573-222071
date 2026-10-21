@@ -44,14 +44,14 @@ spec:
                 operator: NotIn
                 values: [pharmago-users-service]
             topologyKey: kubernetes.io/hostname
-          # Si hay más de un nodo posible, separar las réplicas del mismo servicio (en minikube no hay y comparten)
-          preferredDuringSchedulingIgnoredDuringExecution:
-          - weight: 100
-            podAffinityTerm:
-              labelSelector:
-                matchLabels:
-                  app: pharmago-users-service
-              topologyKey: kubernetes.io/hostname
+        # Todas las réplicas de este servicio van al mismo nodo. Con 3 nodos y 3 servicios,
+        # separarlas le quitaría el nodo a otro microservicio y lo dejaría en Pending.
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app: pharmago-users-service
+            topologyKey: kubernetes.io/hostname
       terminationGracePeriodSeconds: 30
       containers:
       - name: pharmago-users-service
