@@ -39,9 +39,11 @@ spec:
           requests:
             memory: "128Mi"
             cpu: "50m"
+            ephemeral-storage: "100Mi"
           limits:
             memory: "256Mi"
             cpu: "200m"
+            ephemeral-storage: "200Mi"
         # Al terminar, esperar a que el Service deje de enrutar a este pod
         # antes de que el proceso reciba SIGTERM (evita requests cortados).
         lifecycle:
