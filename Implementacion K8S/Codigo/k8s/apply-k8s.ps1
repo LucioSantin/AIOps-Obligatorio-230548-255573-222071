@@ -161,3 +161,4 @@ Write-Host "  Grafana:      minikube service grafana -n pharmago --url" -Foregro
 Write-Host "  Kibana:       minikube service kibana -n pharmago --url" -ForegroundColor White
 Write-Host "  Prometheus:   minikube service prometheus -n pharmago --url" -ForegroundColor White
 
+kubectl apply -f configmaps/grafana-alerting.yaml

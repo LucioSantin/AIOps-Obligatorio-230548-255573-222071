@@ -120,6 +120,9 @@ fi
 kubectl apply -f services/ops/otel-collector-service.yaml
 kubectl apply -f deployments/ops/otel-collector-deployment.yaml
 
+kubectl apply -f services/ops/jaeger-service.yaml
+kubectl apply -f deployments/ops/jaeger-deployment.yaml
+
 kubectl apply -f deployments/ops/prometheus-serviceaccount.yaml
 kubectl apply -f deployments/ops/prometheus-clusterrole.yaml
 kubectl apply -f deployments/ops/prometheus-clusterrolebinding.yaml
@@ -171,4 +174,5 @@ echo "  Frontend:     minikube service pharmago-ui -n pharmago --url"
 echo "  Grafana:      minikube service grafana -n pharmago --url"
 echo "  Kibana:       minikube service kibana -n pharmago --url"
 echo "  Prometheus:   minikube service prometheus -n pharmago --url"
+kubectl apply -f configmaps/grafana-alerting.yaml
 

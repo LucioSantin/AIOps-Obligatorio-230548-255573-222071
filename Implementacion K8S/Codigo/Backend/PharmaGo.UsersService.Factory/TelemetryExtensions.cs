@@ -3,6 +3,7 @@ using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Exporter;
 using System.Diagnostics;
+using OpenTelemetry.Trace;
 
 namespace PharmaGo.UsersService.Factory
 {
@@ -11,18 +12,32 @@ namespace PharmaGo.UsersService.Factory
         public static IServiceCollection AddPharmaGoOpenTelemetryMetrics(this IServiceCollection services, string serviceName = "PharmaGo.UsersService")
         {
             services.AddOpenTelemetry()
-                    .WithMetrics(metricsBuilder => { metricsBuilder
-                    .SetResourceBuilder(ResourceBuilder.CreateDefault().AddService(serviceName))
+                    .WithMetrics(metricsBuilder => metricsBuilder
+                        .SetResourceBuilder(ResourceBuilder.CreateDefault().AddService(serviceName))
                     .AddAspNetCoreInstrumentation()
                     .AddHttpClientInstrumentation()
                     .AddMeter("PharmaGo.CustomMetrics")
                     .AddPrometheusExporter()
-                    .AddOtlpExporter(options =>
-                        {
-                            options.Endpoint = new Uri("http://otlp-collector:4317");
-                            options.Protocol = OtlpExportProtocol.Grpc;
-                        });
-                    });
+                    .AddOtlpExporter(o =>
+                    {
+                        o.Endpoint = new Uri("http://otlp-collector:4317");
+                        o.Protocol = OtlpExportProtocol.Grpc;
+                    }))
+                .WithTracing(tracing => tracing
+                    .SetResourceBuilder(ResourceBuilder.CreateDefault().AddService(serviceName))
+                    .AddAspNetCoreInstrumentation(o =>
+                    {
+                        // No trazar las probes ni el scrape de Prometheus
+                        o.Filter = ctx => !ctx.Request.Path.StartsWithSegments("/health")
+                                       && !ctx.Request.Path.StartsWithSegments("/metrics");
+                        o.RecordException = true;
+                    })
+                    .AddHttpClientInstrumentation()
+                    .AddOtlpExporter(o =>
+                    {
+                        o.Endpoint = new Uri("http://otlp-collector:4317");
+                        o.Protocol = OtlpExportProtocol.Grpc;
+                    }));
 
             return services;
         }
