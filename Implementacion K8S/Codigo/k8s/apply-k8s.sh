@@ -174,4 +174,5 @@ echo "  Frontend:     minikube service pharmago-ui -n pharmago --url"
 echo "  Grafana:      minikube service grafana -n pharmago --url"
 echo "  Kibana:       minikube service kibana -n pharmago --url"
 echo "  Prometheus:   minikube service prometheus -n pharmago --url"
+kubectl apply -f configmaps/grafana-alerting.yaml
 
