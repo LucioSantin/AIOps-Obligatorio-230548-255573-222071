@@ -118,7 +118,7 @@ data:
                   refId: A
                   instant: true
                   expr: >-
-                    sum by (job) (rate(pharmago_http_errors_total{job=~"users-service|pharmacy-service|api-gateway"}[1m]))
+                    sum by (job) (rate({__name__=~"pharmago_http_errors_total(_1)?",job=~"users-service|pharmacy-service|api-gateway"}[1m]))
               - refId: B
                 datasourceUid: __expr__
                 model: { refId: B, type: reduce, expression: A, reducer: last }
