@@ -120,6 +120,9 @@ fi
 kubectl apply -f services/ops/otel-collector-service.yaml
 kubectl apply -f deployments/ops/otel-collector-deployment.yaml
 
+kubectl apply -f services/ops/jaeger-service.yaml
+kubectl apply -f deployments/ops/jaeger-deployment.yaml
+
 kubectl apply -f deployments/ops/prometheus-serviceaccount.yaml
 kubectl apply -f deployments/ops/prometheus-clusterrole.yaml
 kubectl apply -f deployments/ops/prometheus-clusterrolebinding.yaml

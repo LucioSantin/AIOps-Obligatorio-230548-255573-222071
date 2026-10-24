@@ -4,7 +4,7 @@ metadata:
   name: pharmago-ui
   namespace: pharmago
 spec:
-  replicas: 1
+  replicas: 2
   # Rolling update sin downtime: primero se levanta el pod nuevo y solo cuando
   # está READY se baja el viejo (nunca hay 0 réplicas disponibles).
   strategy:

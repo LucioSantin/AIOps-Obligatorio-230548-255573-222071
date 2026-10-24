@@ -14,6 +14,10 @@ data:
     exporters:
       prometheus:
         endpoint: "0.0.0.0:8889"
+      otlp/jaeger:
+        endpoint: "jaeger:4317"
+        tls:
+          insecure: true
       debug: {}
 
     service:
@@ -21,4 +25,7 @@ data:
         metrics:
           receivers: [otlp]
           exporters: [prometheus, debug]
+        traces:
+          receivers: [otlp]
+          exporters: [otlp/jaeger]
 
