@@ -48,6 +48,7 @@ kubectl apply -f configmaps\grafana-provisioning.yaml
 kubectl apply -f configmaps\grafana-dashboards.yaml
 kubectl apply -f configmaps\grafana-dashboard-infra.yaml
 kubectl apply -f configmaps\fluent-bit-config.yaml
+kubectl apply -f configmaps\grafana-alerting.yaml
 if ($LASTEXITCODE -ne 0) { exit 1 }
 
 Write-Host "`n5. Creando StorageClass y PersistentVolumes..." -ForegroundColor Yellow
@@ -116,6 +117,8 @@ do {
 # Resto de servicios ops
 kubectl apply -f services\ops\otel-collector-service.yaml
 kubectl apply -f deployments\ops\otel-collector-deployment.yaml
+kubectl apply -f services\ops\jaeger-service.yaml
+kubectl apply -f deployments\ops\jaeger-deployment.yaml
 
 kubectl apply -f deployments\ops\prometheus-serviceaccount.yaml
 kubectl apply -f deployments\ops\prometheus-clusterrole.yaml
@@ -160,5 +163,3 @@ Write-Host "  Frontend:     minikube service pharmago-ui -n pharmago --url" -For
 Write-Host "  Grafana:      minikube service grafana -n pharmago --url" -ForegroundColor White
 Write-Host "  Kibana:       minikube service kibana -n pharmago --url" -ForegroundColor White
 Write-Host "  Prometheus:   minikube service prometheus -n pharmago --url" -ForegroundColor White
-
-kubectl apply -f configmaps/grafana-alerting.yaml

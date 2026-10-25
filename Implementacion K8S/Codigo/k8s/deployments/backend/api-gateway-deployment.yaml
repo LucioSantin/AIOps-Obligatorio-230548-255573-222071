@@ -62,6 +62,12 @@ spec:
         env:
         - name: ASPNETCORE_ENVIRONMENT
           value: "Production"
+        - name: K8S_POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: OTEL_RESOURCE_ATTRIBUTES
+          value: "k8s.pod.name=$(K8S_POD_NAME),k8s.namespace.name=pharmago"
         # Recursos reducidos para nodos ~5GB (proyecto docente)
         resources:
           requests:
@@ -70,6 +76,14 @@ spec:
           limits:
             memory: "384Mi"
             cpu: "500m"
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+            ephemeral-storage: "100Mi"
+          limits:
+            memory: "384Mi"
+            cpu: "500m"
+            ephemeral-storage: "250Mi"
         # Al terminar, esperar a que el Service deje de enrutar a este pod
         # antes de que el proceso reciba SIGTERM (evita requests cortados).
         lifecycle:
