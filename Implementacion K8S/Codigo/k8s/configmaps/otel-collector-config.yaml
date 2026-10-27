@@ -10,15 +10,69 @@ data:
         protocols:
           grpc:
             endpoint: "0.0.0.0:4317"
+      prometheus:
+        config:
+          scrape_configs:
+            - job_name: 'node-exporter'
+              metrics_path: /metrics
+              kubernetes_sd_configs:
+              - role: pod
+                namespaces:
+                  names: [pharmago]
+              relabel_configs:
+              - source_labels: [__meta_kubernetes_pod_label_app]
+                regex: node-exporter
+                action: keep
+              - source_labels: [__meta_kubernetes_pod_node_name]
+                target_label: node
+
+            - job_name: 'kubernetes-cadvisor'
+              kubernetes_sd_configs:
+              - role: node
+              scheme: https
+              tls_config:
+                ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+              bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+              relabel_configs:
+              - action: labelmap
+                regex: __meta_kubernetes_node_label_(.+)
+              - target_label: __address__
+                replacement: kubernetes.default.svc:443
+              - source_labels: [__meta_kubernetes_node_name]
+                regex: (.+)
+                target_label: __metrics_path__
+                replacement: /api/v1/nodes/$${1}/proxy/metrics/cadvisor
+              - source_labels: [__meta_kubernetes_node_name]
+                target_label: node
+              - replacement: kubernetes-cadvisor
+                target_label: job
+          
+    processors:
+      memory_limiter:
+        check_interval: 1s
+        limit_mib: 200
+      batch:
+        timeout: 2s
 
     exporters:
       prometheus:
         endpoint: "0.0.0.0:8889"
-      debug: {}
+        resource_to_telemetry_conversion:
+          enabled: true
+        metric_expiration: 1m
+      otlp/jaeger:
+        endpoint: "jaeger:4317"
+        tls:
+          insecure: true
 
     service:
       pipelines:
         metrics:
+          receivers: [otlp, prometheus]
+          processors: [memory_limiter, batch]
+          exporters: [prometheus]
+        traces:
           receivers: [otlp]
-          exporters: [prometheus, debug]
+          processors: [memory_limiter, batch]
+          exporters: [otlp/jaeger]
 

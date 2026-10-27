@@ -4,7 +4,7 @@ metadata:
   name: pharmago-ui
   namespace: pharmago
 spec:
-  replicas: 1
+  replicas: 2
   # Rolling update sin downtime: primero se levanta el pod nuevo y solo cuando
   # está READY se baja el viejo (nunca hay 0 réplicas disponibles).
   strategy:
@@ -39,9 +39,11 @@ spec:
           requests:
             memory: "128Mi"
             cpu: "50m"
+            ephemeral-storage: "100Mi"
           limits:
             memory: "256Mi"
             cpu: "200m"
+            ephemeral-storage: "200Mi"
         # Al terminar, esperar a que el Service deje de enrutar a este pod
         # antes de que el proceso reciba SIGTERM (evita requests cortados).
         lifecycle:

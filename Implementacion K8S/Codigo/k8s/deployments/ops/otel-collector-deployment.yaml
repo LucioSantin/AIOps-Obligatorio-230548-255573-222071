@@ -13,6 +13,8 @@ spec:
       labels:
         app: otlp-collector
     spec:
+      # Necesita permisos para descubrir pods y leer cAdvisor
+      serviceAccountName: prometheus
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -23,7 +25,10 @@ spec:
                 values: [ops, all]
       containers:
       - name: otlp-collector
-        image: otel/opentelemetry-collector-contrib:latest
+        image: otel/opentelemetry-collector-contrib:0.100.0
+        resources:
+          requests: { memory: "128Mi", cpu: "50m" }
+          limits:   { memory: "256Mi" }
         ports:
         - containerPort: 4317
           name: otlp-grpc
