@@ -10,7 +10,7 @@ data:
       - orgId: 1
         name: pharmago-anomalias
         folder: PharmaGo
-        interval: 150s
+        interval: 10s
         rules:
 
           - uid: pharmago-cpu-alta
@@ -179,6 +179,9 @@ data:
                   instant: true
                   expr: >-
                     sum by (job) (up{job=~"users-service|pharmacy-service|api-gateway"})
+                    or label_replace(vector(0), "job", "users-service", "", "")
+                    or label_replace(vector(0), "job", "pharmacy-service", "", "")
+                    or label_replace(vector(0), "job", "api-gateway", "", "")
               - refId: B
                 datasourceUid: __expr__
                 model: { refId: B, type: reduce, expression: A, reducer: last }

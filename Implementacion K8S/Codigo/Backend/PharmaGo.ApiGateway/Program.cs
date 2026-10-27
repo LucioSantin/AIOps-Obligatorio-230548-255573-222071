@@ -72,7 +72,11 @@ builder.Services.AddOpenTelemetry()
                            && !ctx.Request.Path.StartsWithSegments("/metrics");
             o.RecordException = true;
         })
-        .AddHttpClientInstrumentation()
+        .AddHttpClientInstrumentation(o =>
+        {
+            o.FilterHttpRequestMessage = req => req.RequestUri?.AbsolutePath.StartsWith("/health") != true;
+            o.RecordException = true;
+        })
         .AddOtlpExporter(o =>
         {
             o.Endpoint = new Uri("http://otlp-collector:4317");

@@ -55,7 +55,7 @@ Write-Host "`n5. Creando StorageClass y PersistentVolumes..." -ForegroundColor Y
 kubectl apply -f persistent-volumes\storage-class.yaml
 if ($LASTEXITCODE -ne 0) { exit 1 }
 
-# Eliminar PVs existentes en estado Released para recrearlos
+# Eliminar PVs existentes en estado Release
 Write-Host "   Limpiando PVs existentes..." -ForegroundColor Cyan
 kubectl delete pv sql-pv elasticsearch-pv prometheus-pv grafana-pv --ignore-not-found=true
 Start-Sleep -Seconds 2
@@ -91,11 +91,10 @@ do {
 } while ($true)
 
 Write-Host "`n7. Desplegando servicios de observabilidad..." -ForegroundColor Yellow
-# Elasticsearch primero
+# Elasticsearch
 kubectl apply -f services\ops\elasticsearch-service.yaml
 kubectl apply -f deployments\ops\elasticsearch-deployment.yaml
 
-# Esperar a que Elasticsearch esté listo
 Write-Host "   Esperando a que Elasticsearch esté listo..." -ForegroundColor Yellow
 $timeout = 0
 $maxTimeout = 300
@@ -115,14 +114,14 @@ do {
 } while ($true)
 
 # Resto de servicios ops
+kubectl apply -f deployments\ops\prometheus-serviceaccount.yaml
+kubectl apply -f deployments\ops\prometheus-clusterrole.yaml
+kubectl apply -f deployments\ops\prometheus-clusterrolebinding.yaml
 kubectl apply -f services\ops\otel-collector-service.yaml
 kubectl apply -f deployments\ops\otel-collector-deployment.yaml
 kubectl apply -f services\ops\jaeger-service.yaml
 kubectl apply -f deployments\ops\jaeger-deployment.yaml
 
-kubectl apply -f deployments\ops\prometheus-serviceaccount.yaml
-kubectl apply -f deployments\ops\prometheus-clusterrole.yaml
-kubectl apply -f deployments\ops\prometheus-clusterrolebinding.yaml
 kubectl apply -f services\ops\prometheus-service.yaml
 kubectl apply -f deployments\ops\prometheus-deployment.yaml
 kubectl apply -f services\ops\node-exporter-service.yaml

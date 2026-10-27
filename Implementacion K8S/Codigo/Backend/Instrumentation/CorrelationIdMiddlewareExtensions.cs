@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using System.Diagnostics;
 
 namespace Instrumentation;
 
@@ -18,7 +19,7 @@ public static class CorrelationIdMiddlewareExtensions
         {
             var header = context.Request.Headers["X-Correlation-ID"].FirstOrDefault();
             var correlationId = string.IsNullOrWhiteSpace(header)
-                ? Guid.NewGuid().ToString("D")
+                ? (Activity.Current?.TraceId.ToHexString() ?? Guid.NewGuid().ToString("D"))
                 : header.Trim();
             context.Items[HttpContextItemKey] = correlationId;
             context.Response.Headers["X-Correlation-ID"] = correlationId;
@@ -35,13 +36,17 @@ public static class CorrelationIdMiddlewareExtensions
         {
             var header = context.Request.Headers["X-Correlation-ID"].FirstOrDefault();
             var correlationId = string.IsNullOrWhiteSpace(header)
-                ? context.TraceIdentifier
+                ? (Activity.Current?.TraceId.ToHexString() ?? context.TraceIdentifier)
                 : header.Trim();
             context.Items[HttpContextItemKey] = correlationId;
 
             var loggerFactory = context.RequestServices.GetRequiredService<ILoggerFactory>();
             var log = loggerFactory.CreateLogger("Request");
-            using (log.BeginScope(new Dictionary<string, object> { ["correlation_id"] = correlationId }))
+            using (log.BeginScope(new Dictionary<string, object>
+            {
+                ["correlation_id"] = correlationId,
+                ["trace_id"] = Activity.Current?.TraceId.ToHexString() ?? "none"
+            }))
                 await next();
         });
     }

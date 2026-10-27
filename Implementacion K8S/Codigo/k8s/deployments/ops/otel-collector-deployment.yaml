@@ -13,6 +13,8 @@ spec:
       labels:
         app: otlp-collector
     spec:
+      # Necesita permisos para descubrir pods y leer cAdvisor
+      serviceAccountName: prometheus
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:

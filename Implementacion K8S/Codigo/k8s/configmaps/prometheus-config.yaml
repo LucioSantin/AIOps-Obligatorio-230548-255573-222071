@@ -15,7 +15,6 @@ data:
         static_configs:
           - targets: ['otlp-collector:8889']
       
-      # Se scrapea cada pod por separado porque vía Service cada scrape cae en una réplica distinta
       - job_name: 'users-service'
         metrics_path: /metrics
         kubernetes_sd_configs:
@@ -75,39 +74,3 @@ data:
         - source_labels: [__name__]
           regex: '.*'
           action: drop
-
-      - job_name: 'node-exporter'
-        metrics_path: /metrics
-        kubernetes_sd_configs:
-        - role: pod
-          namespaces:
-            names: [pharmago]
-        relabel_configs:
-        - source_labels: [__meta_kubernetes_pod_label_app]
-          regex: node-exporter
-          action: keep
-        - source_labels: [__meta_kubernetes_pod_node_name]
-          target_label: node
-
-      # cAdvisor: métricas por contenedor/pod (para ver impacto de chaos)
-      - job_name: 'kubernetes-cadvisor'
-        kubernetes_sd_configs:
-        - role: node
-        scheme: https
-        tls_config:
-          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
-        relabel_configs:
-        - action: labelmap
-          regex: __meta_kubernetes_node_label_(.+)
-        - target_label: __address__
-          replacement: kubernetes.default.svc:443
-        - source_labels: [__meta_kubernetes_node_name]
-          regex: (.+)
-          target_label: __metrics_path__
-          replacement: /api/v1/nodes/${1}/proxy/metrics/cadvisor
-        - source_labels: [__meta_kubernetes_node_name]
-          target_label: node
-        - replacement: kubernetes-cadvisor
-          target_label: job
-
