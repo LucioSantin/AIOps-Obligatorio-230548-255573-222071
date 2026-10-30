@@ -125,9 +125,57 @@ Mediana y MAD se estiman sobre las 300 ventanas. La escala es 1.4826 · MAD.
 - **El falso positivo es un error rate bajo, no alto.** Es un minuto cerca de las 08:00 con error rate de ~0.005, debajo de la mediana. El score usa el valor absoluto |x − mediana|, así que alerta por los dos lados. En operación, que haya pocos errores no es un incidente, y convendría usar un score de un solo lado: (x − mediana) / escala > 3.
 - **combo_sutil sigue invisible,** pero ahora está al borde: su error rate (0.0132 a 0.0140) queda justo debajo del umbral de 0.0144, con score máximo 2.73. Como dice el notebook, ningún eje por separado cruza 3 MAD.
 
-## Sección 6: Isolation Forest
+## Sección 6: Isolation Forest (4D)
 
-_Pendiente._
+Hiperparámetros:
+
+- **ψ (tamaño de submuestra) = 256:** cada árbol se construye con 256 puntos sorteados de los 300 (`max_samples`).
+- **m (cantidad de árboles) = 300** (`n_estimators`).
+- `contamination=0.10` y `random_state=42`. Se entrena sobre las 4 features escaladas (`X_all`). El score es `-score_samples` y la flag sale de `predict == -1`.
+
+`contamination=0.10` fija el presupuesto en 30 alertas (el 10% de 300). El umbral del score queda en 0.553.
+
+### Minutos alertados y score por kind
+
+En el ranking, 1 es el minuto más sospechoso de los 300.
+
+| kind | n | flag IF | score mediana / máx | posición en el ranking (mín / mediana / máx) |
+|---|---|---|---|---|
+| micro_burst | 2 | 2 | 0.729 / 0.733 | 1 / 1.5 / 2 |
+| incidente_5xx | 8 | 8 | 0.650 / 0.670 | 3 / 6.5 / 10 |
+| cpu_latencia | 5 | 5 | 0.611 / 0.620 | 11 / 13 / 15 |
+| timeouts | 4 | 4 | 0.564 / 0.578 | 20 / 24.5 / 30 |
+| combo_sutil | 7 | **4** | 0.554 / 0.588 | 17 / 29 / 35 |
+| spike_error | 3 | 0 | 0.534 / 0.550 | 32 / 38 / 39 |
+| latencia_silenciosa | 6 | 1 | 0.524 / 0.587 | 18 / 41.5 / 66 |
+| batch | 20 | **4** | 0.506 / 0.600 | 16 / 50 / 76 |
+| degradacion | 18 | 0 | 0.463 / 0.511 | 46 / 81 / 224 |
+| pico_carga | 8 | 0 | 0.427 / 0.520 | 44 / 110.5 / 155 |
+| normal | 219 | **2** | 0.386 / 0.569 | 21 / 189 / 300 |
+
+**Totales:** 30 alertas, de las cuales 24 son anomalías reales y 6 son falsos positivos (4 de batch y 2 normales). Precision 0.80, recall 0.45, F1 0.58.
+
+### Observaciones
+
+- **Primer detector que ve combo_sutil:** marca 4 de sus 7 minutos, y los 7 quedan entre las posiciones 17 y 35. Ningún univariado lo detectaba, porque lo raro está en la combinación: poco tráfico con error alto.
+- **Cae en la trampa del batch:** marca 4 de sus 20 minutos. IF sí ve la CPU, y un 76% de CPU es poco frecuente en la muestra, aunque sea operación legítima.
+- **Los 2 falsos positivos normales caen a las 08:00 y 08:01.** Es el arranque de la rampa matinal, con poco tráfico (~55 a 60 requests) y CPU baja (~25%). Están en el extremo inferior de la nube, donde hay pocos puntos, y por eso se aíslan rápido. Es el caso inverso a pico_carga: el borde de abajo de la nube termina pareciendo un outlier.
+- **pico_carga no dispara:** su mejor minuto está en la posición 44. Lo pone en el extremo de la nube normal, no afuera de ella, porque sus 4 métricas suben en la proporción habitual.
+- **Pierde anomalías de un solo eje que MAD sí ve:** spike_error queda en las posiciones 32 a 39, justo afuera del presupuesto, y latencia_silenciosa tiene 1 de 6. En 4D, que un solo eje se aleje pesa menos que en un detector dedicado a ese eje.
+- **degradacion: 0 de 18.** El score sube junto con la rampa (de 0.38 a 0.51), pero no llega al umbral de 0.553.
+- **El presupuesto limita el recall:** hay 53 anomalías y solo 30 alertas, así que aun acertando todas el recall máximo sería 30/53 = 0.57.
+
+### Comparación con los univariados
+
+| Detector | Alertas | Precision | Recall | F1 |
+|---|---|---|---|---|
+| k-sigma error | 10 | 1.00 | 0.19 | 0.32 |
+| k-sigma lat | 8 | 1.00 | 0.15 | 0.26 |
+| MAD error | 18 | 0.94 | 0.32 | 0.48 |
+| MAD lat | 36 | 1.00 | 0.68 | **0.81** |
+| Isolation Forest | 30 | 0.80 | 0.45 | 0.58 |
+
+MAD lat tiene el mejor F1, porque 6 de los 8 kinds anómalos rompen la latencia. Igual, IF detecta combo_sutil, y ningún univariado lo ve.
 
 ## Sección 7: One-Class SVM
 
@@ -158,13 +206,15 @@ Con MAD la separación es clara:
 latencia_silenciosa es el caso canónico porque solo se rompe un eje: la latencia sube a unos 213 ms y el error rate sigue normal (score MAD máximo 0.93). Un detector de error no la puede ver nunca. Uno de latencia la ve solo si su escala no está inflada: con k-sigma queda en 2.98 y no alerta, con MAD llega a 9.85 de mediana y alerta los 6 minutos.
 
 **3. ¿combo_sutil cruza k = 3 en algún eje?**
-_Parcial._ No, con ninguno de los dos univariados. Con k-sigma el score máximo es 0.38 en error y 0.43 en latencia, igual que un minuto normal. Con MAD sube a 2.73 en error y 2.40 en latencia: queda arriba de casi todos los normales en el ranking, pero bajo el umbral. Su error rate (0.0132 a 0.0140) está justo debajo del umbral MAD de 0.0144. Lo raro de combo_sutil es la combinación de poco tráfico con error alto, y eso un detector de un solo eje no lo puede ver. Falta revisar el ranking de IF y OCSVM.
+_Parcial._ No, con ninguno de los dos univariados. Con k-sigma el score máximo es 0.38 en error y 0.43 en latencia, igual que un minuto normal. Con MAD sube a 2.73 en error y 2.40 en latencia: queda arriba de casi todos los normales en el ranking, pero bajo el umbral. Su error rate (0.0132 a 0.0140) está justo debajo del umbral MAD de 0.0144. Lo raro de combo_sutil es la combinación de poco tráfico con error alto, y eso un detector de un solo eje no lo puede ver.
+
+Isolation Forest sí lo ranquea arriba: sus 7 minutos quedan entre las posiciones 17 y 35 de 300, y la flag se enciende en 4. Falta revisar OCSVM.
 
 **4. pico_carga contra incidente_5xx en el plano requests–error.**
 _Pendiente (necesita IF y OCSVM)._
 
 **5. ¿Qué detector trata al batch como anomalía?**
-_Parcial._ Ni k-sigma ni MAD lo marcan en ninguno de sus 20 minutos. Ninguno de los dos mira CPU, que es el único eje que se mueve en el batch. El score MAD máximo del batch es 1.79 en error y 2.20 en latencia. Falta ver IF y OCSVM, que sí incluyen cpu_pct.
+_Parcial._ Ni k-sigma ni MAD lo marcan en ninguno de sus 20 minutos. Ninguno de los dos mira CPU, que es el único eje que se mueve en el batch. El score MAD máximo del batch es 1.79 en error y 2.20 en latencia. Isolation Forest sí incluye cpu_pct y marca 4 de los 20 minutos de batch, con score máximo 0.600 y mejor posición 16 en el ranking. Un modo raro se parece a un outlier porque IF mide qué tan rápido se aísla un punto, y el batch es poco frecuente: 20 minutos con CPU de ~76%, contra un 38% típico. IF no sabe si es un modo planificado o una falla, solo ve que hay pocos puntos en esa zona. Falta ver OCSVM.
 
 **6. Primer minuto de degradacion que enciende cada método.**
 _Parcial._ La degradación arranca a las 11:50.
@@ -172,6 +222,7 @@ _Parcial._ La degradación arranca a las 11:50.
 - **k-sigma lat:** no enciende ninguno de los 18 minutos. Su score máximo es 2.55, a las 12:06, con 209 ms.
 - **MAD lat:** el primer minuto que enciende es las **11:57** (154 ms, score 4.68). Desde ahí enciende los 11 minutos restantes. Entre 11:51 y 11:56 la latencia ya estaba en 124 a 134 ms, con scores de 2.1 a 2.96, sin cruzar el umbral.
 - **Detectores de error:** ninguno la ve, porque la degradación no genera errores.
+- **Isolation Forest:** no enciende ninguno de los 18 minutos. Su score sube con la rampa, de 0.38 a 0.51, pero no llega al umbral de 0.553. El mejor minuto queda en la posición 46 del ranking.
 
 A un detector i.i.d., que evalúa cada minuto por separado, le falta memoria. Cada minuto de 11:51 a 11:56 parece apenas alto, y no tiene en cuenta que la latencia viene subiendo seis minutos seguidos. Un detector con contexto temporal la vería antes: uno que mire la tendencia o la pendiente, que acumule desvíos como CUSUM o EWMA, o que use una ventana de varios minutos como feature.
 
