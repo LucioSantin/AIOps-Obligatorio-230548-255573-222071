@@ -174,12 +174,57 @@ En el ranking, 1 es el minuto más sospechoso de los 300.
 | MAD error | 18 | 0.94 | 0.32 | 0.48 |
 | MAD lat | 36 | 1.00 | 0.68 | **0.81** |
 | Isolation Forest | 30 | 0.80 | 0.45 | 0.58 |
+| One-Class SVM | 29 | 0.62 | 0.34 | 0.44 |
 
 MAD lat tiene el mejor F1, porque 6 de los 8 kinds anómalos rompen la latencia. Igual, IF detecta combo_sutil, y ningún univariado lo ve.
 
-## Sección 7: One-Class SVM
+## Sección 7: One-Class SVM (4D)
 
-_Pendiente._
+Parámetros: `kernel="rbf"`, `nu=0.10`, `gamma="scale"`. Con las features escaladas, gamma = 1 / (4 · var) = 0.25. Se entrena sobre `X_all`. El score es `-decision_function` y la flag sale de `predict == -1`, que equivale a f(x) < 0. El modelo quedó con 39 vectores de soporte.
+
+### Minutos alertados y score por kind (comparado con IF)
+
+| kind | n | flag OCSVM | flag IF | score mediana / máx | posición en el ranking (mín / mediana / máx) |
+|---|---|---|---|---|---|
+| micro_burst | 2 | 2 | 2 | 1.709 / 1.740 | 1 / 1.5 / 2 |
+| spike_error | 3 | **2** | 0 | 0.028 / 0.117 | 8 / 18 / 38 |
+| timeouts | 4 | 2 | 4 | 0.012 / 0.237 | 4 / 29 / 43 |
+| incidente_5xx | 8 | **4** | 8 | 0.011 / 0.097 | 9 / 26 / 63 |
+| latencia_silenciosa | 6 | **3** | 1 | 0.000 / 0.513 | 3 / 31.5 / 130 |
+| cpu_latencia | 5 | 3 | 5 | 0.000 / 0.128 | 7 / 28 / 42 |
+| combo_sutil | 7 | 1 | 4 | −0.138 / 0.056 | 14 / 57 / 68 |
+| degradacion | 18 | 1 | 0 | −0.458 / 0.042 | 17 / 158.5 / 296 |
+| batch | 20 | **5** | 4 | −0.136 / 0.222 | 5 / 57.5 / 127 |
+| pico_carga | 8 | **2** | 0 | −0.197 / 0.043 | 16 / 69 / 161 |
+| normal | 219 | **4** | 2 | −0.512 / 0.044 | 15 / 182 / 300 |
+
+**Totales:** 29 alertas, de las cuales 18 son anomalías reales y 11 son falsos positivos (5 de batch, 2 de pico_carga y 4 normales). Precision 0.62, recall 0.34, F1 0.44.
+
+### Falsos positivos
+
+| timestamp | requests | error_rate | latency_ms | cpu_pct | kind |
+|---|---|---|---|---|---|
+| 08:01 | 62 | 0.0048 | 77.9 | 27.0 | normal |
+| 08:04 | 58 | 0.0060 | 76.6 | 23.4 | normal |
+| 08:25 | 78 | 0.0088 | 81.6 | 72.9 | batch |
+| 08:26 | 86 | 0.0076 | 73.7 | 75.9 | batch |
+| 08:29 | 87 | 0.0073 | 75.9 | 82.0 | batch |
+| 10:19 | 178 | 0.0119 | 92.6 | 49.0 | normal |
+| 11:18 | 183 | 0.0113 | 104.5 | 46.7 | pico_carga |
+| 11:25 | 180 | 0.0124 | 99.7 | 53.1 | pico_carga |
+| 11:42 | 145 | 0.0108 | 99.3 | 79.2 | batch |
+| 11:46 | 165 | 0.0109 | 107.3 | 75.3 | batch |
+| 12:18 | 139 | 0.0085 | 86.0 | 29.8 | normal |
+
+Todos están en algún borde de la nube normal: poco tráfico a las 08:00, mucho tráfico (pico_carga y 10:19), CPU alta (batch) o CPU baja para su carga (12:18).
+
+### Observaciones
+
+- **Ranking y flag no coinciden.** La mayoría de las anomalías tienen score cerca de 0: la mediana de incidente_5xx es 0.011 y la de latencia_silenciosa es 0.000. Quedan prácticamente sobre la frontera, así que cualquier diferencia mínima decide si alertan o no. Esto se ve en la gráfica: el score oscila alrededor de la línea f(x) = 0.
+- **La frontera envuelve parte de las anomalías.** Con `nu=0.10` y kernel RBF, el modelo arma una región que deja afuera alrededor del 10% de los puntos. Como entrenó con todos los minutos, anomalías incluidas, los grupos compactos de anomalías probablemente terminan cerca o adentro de esa región. El caso más claro es incidente_5xx: 8 minutos juntos con 37 requests y error de ~0.042, de los que OCSVM solo marca 4. IF los marca todos, porque igual se aíslan rápido.
+- **Le gana a IF en anomalías de un solo eje:** spike_error (2 contra 0) y latencia_silenciosa (3 contra 1).
+- **Pierde contra IF en combinaciones:** combo_sutil (1 contra 4), incidente_5xx (4 contra 8), timeouts (2 contra 4) y cpu_latencia (3 contra 5).
+- **Cae más en las trampas:** 5 minutos de batch y, a diferencia de IF, 2 de pico_carga. Una frontera RBF ajustada a la nube normal corta también sus extremos legítimos.
 
 ## Sección 8: Comparación
 
@@ -206,28 +251,61 @@ Con MAD la separación es clara:
 latencia_silenciosa es el caso canónico porque solo se rompe un eje: la latencia sube a unos 213 ms y el error rate sigue normal (score MAD máximo 0.93). Un detector de error no la puede ver nunca. Uno de latencia la ve solo si su escala no está inflada: con k-sigma queda en 2.98 y no alerta, con MAD llega a 9.85 de mediana y alerta los 6 minutos.
 
 **3. ¿combo_sutil cruza k = 3 en algún eje?**
-_Parcial._ No, con ninguno de los dos univariados. Con k-sigma el score máximo es 0.38 en error y 0.43 en latencia, igual que un minuto normal. Con MAD sube a 2.73 en error y 2.40 en latencia: queda arriba de casi todos los normales en el ranking, pero bajo el umbral. Su error rate (0.0132 a 0.0140) está justo debajo del umbral MAD de 0.0144. Lo raro de combo_sutil es la combinación de poco tráfico con error alto, y eso un detector de un solo eje no lo puede ver.
+No, con ninguno de los dos univariados. Con k-sigma el score máximo es 0.38 en error y 0.43 en latencia, igual que un minuto normal. Con MAD sube a 2.73 en error y 2.40 en latencia: queda arriba de casi todos los normales en el ranking, pero bajo el umbral. Su error rate (0.0132 a 0.0140) está justo debajo del umbral MAD de 0.0144. Lo raro de combo_sutil es la combinación de poco tráfico con error alto, y eso un detector de un solo eje no lo puede ver.
 
-Isolation Forest sí lo ranquea arriba: sus 7 minutos quedan entre las posiciones 17 y 35 de 300, y la flag se enciende en 4. Falta revisar OCSVM.
+Los multivariados sí lo ponen arriba en el ranking:
+
+- **Isolation Forest:** sus 7 minutos quedan entre las posiciones 17 y 35 de 300, y la flag se enciende en 4.
+- **One-Class SVM:** lo ranquea peor, entre las posiciones 14 y 68 (mediana 57), y la flag se enciende en 1 solo minuto. Su score mediano es −0.138, adentro de la frontera.
+
+IF es el que mejor lo ve. Igual, hasta con IF la mitad de los minutos queda en el ranking sin encender la flag.
 
 **4. pico_carga contra incidente_5xx en el plano requests–error.**
-_Pendiente (necesita IF y OCSVM)._
+En promedio, pico_carga está en (174 requests, error 0.0115) e incidente_5xx en (37 requests, error 0.042).
+
+- **pico_carga está al borde de la nube:** es el extremo derecho de la franja normal. Tiene más tráfico que cualquier otro minuto, pero su error rate es el que corresponde a esa carga.
+- **incidente_5xx está afuera:** tiene poco tráfico y un error rate 4 veces mayor de lo esperado. Ningún minuto normal se le acerca.
+
+Las flags de los dos multivariados no responden igual a esa geometría:
+
+- **Isolation Forest coincide:** 0 de 8 en pico_carga y 8 de 8 en incidente_5xx.
+- **One-Class SVM no:** marca 2 de 8 en pico_carga (11:18 y 11:25, con 180 requests o más) y solo 4 de 8 en incidente_5xx. La frontera RBF corta el extremo legítimo de la nube y deja parcialmente adentro al grupo compacto del incidente.
 
 **5. ¿Qué detector trata al batch como anomalía?**
-_Parcial._ Ni k-sigma ni MAD lo marcan en ninguno de sus 20 minutos. Ninguno de los dos mira CPU, que es el único eje que se mueve en el batch. El score MAD máximo del batch es 1.79 en error y 2.20 en latencia. Isolation Forest sí incluye cpu_pct y marca 4 de los 20 minutos de batch, con score máximo 0.600 y mejor posición 16 en el ranking. Un modo raro se parece a un outlier porque IF mide qué tan rápido se aísla un punto, y el batch es poco frecuente: 20 minutos con CPU de ~76%, contra un 38% típico. IF no sabe si es un modo planificado o una falla, solo ve que hay pocos puntos en esa zona. Falta ver OCSVM.
+Ni k-sigma ni MAD lo marcan en ninguno de sus 20 minutos. Ninguno de los dos mira CPU, que es el único eje que se mueve en el batch. El score MAD máximo del batch es 1.79 en error y 2.20 en latencia. Isolation Forest sí incluye cpu_pct y marca 4 de los 20 minutos de batch, con score máximo 0.600 y mejor posición 16 en el ranking. Un modo raro se parece a un outlier porque IF mide qué tan rápido se aísla un punto, y el batch es poco frecuente: 20 minutos con CPU de ~76%, contra un 38% típico. IF no sabe si es un modo planificado o una falla, solo ve que hay pocos puntos en esa zona.
+
+One-Class SVM marca 5 de los 20 minutos, todavía más que IF, y uno de ellos (08:29, CPU 82%) queda en la posición 5 del ranking. Una frontera ajustada al volumen donde está la mayoría de los datos deja afuera cualquier zona poco poblada, sea una falla o un modo operativo.
+
+Los dos multivariados se equivocan por la misma razón: un detector no supervisado mide qué tan raro es un punto, no si es malo. Para no marcar el batch habría que darle contexto, por ejemplo una feature que indique si hay un job programado o una ventana de mantenimiento conocida.
 
 **6. Primer minuto de degradacion que enciende cada método.**
-_Parcial._ La degradación arranca a las 11:50.
+La degradación arranca a las 11:50.
 
 - **k-sigma lat:** no enciende ninguno de los 18 minutos. Su score máximo es 2.55, a las 12:06, con 209 ms.
 - **MAD lat:** el primer minuto que enciende es las **11:57** (154 ms, score 4.68). Desde ahí enciende los 11 minutos restantes. Entre 11:51 y 11:56 la latencia ya estaba en 124 a 134 ms, con scores de 2.1 a 2.96, sin cruzar el umbral.
 - **Detectores de error:** ninguno la ve, porque la degradación no genera errores.
 - **Isolation Forest:** no enciende ninguno de los 18 minutos. Su score sube con la rampa, de 0.38 a 0.51, pero no llega al umbral de 0.553. El mejor minuto queda en la posición 46 del ranking.
+- **One-Class SVM:** enciende un solo minuto, las **12:02**, doce minutos después del arranque y con score 0.042, apenas sobre la frontera. El score no sube de forma pareja con la rampa: va de −0.78 a 0.04 y vuelve a bajar a −0.35 en el minuto siguiente.
+
+MAD lat es el que antes la detecta, a las 11:57. Los multivariados la ven peor, porque la latencia sube sola mientras las otras 3 métricas siguen normales, y en 4D ese desvío de un solo eje pesa menos.
 
 A un detector i.i.d., que evalúa cada minuto por separado, le falta memoria. Cada minuto de 11:51 a 11:56 parece apenas alto, y no tiene en cuenta que la latencia viene subiendo seis minutos seguidos. Un detector con contexto temporal la vería antes: uno que mire la tendencia o la pendiente, que acumule desvíos como CUSUM o EWMA, o que use una ventana de varios minutos como feature.
 
 **7. ¿nu = 0.10 y contamination = 0.10 dan el mismo F1?**
-_Pendiente._
+No. Los dos usan un presupuesto parecido (30 alertas IF, 29 OCSVM), pero:
+
+| Detector | Alertas | Correctas | Falsos positivos | Precision | Recall | F1 |
+|---|---|---|---|---|---|---|
+| Isolation Forest | 30 | 24 | 6 | 0.80 | 0.45 | **0.58** |
+| One-Class SVM | 29 | 18 | 11 | 0.62 | 0.34 | 0.44 |
+
+Coinciden en 18 minutos. 12 los marca solo IF y 11 solo OCSVM. Las diferencias aparecen en:
+
+- **Combinaciones raras, donde gana IF:** incidente_5xx (8 contra 4), combo_sutil (4 contra 1), timeouts (4 contra 2) y cpu_latencia (5 contra 3).
+- **Anomalías de un solo eje, donde gana OCSVM:** spike_error (2 contra 0), latencia_silenciosa (3 contra 1) y degradacion (1 contra 0).
+- **Trampas, donde OCSVM gasta más presupuesto:** batch (5 contra 4), pico_carga (2 contra 0) y normales (4 contra 2).
+
+El presupuesto es el mismo, pero cada método lo gasta distinto. IF lo gasta en los puntos que se aíslan rápido, que son los grupos de anomalías lejos de la nube. OCSVM lo gasta en los puntos que quedan del lado de afuera de su frontera, y esa frontera también pasa por los bordes legítimos de la nube. Como entrena con datos contaminados, parte de los grupos de anomalías terminan adentro.
 
 ### Exit ticket
 
