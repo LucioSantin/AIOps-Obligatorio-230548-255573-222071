@@ -228,18 +228,56 @@ Todos están en algún borde de la nube normal: poco tráfico a las 08:00, mucho
 
 ## Sección 8: Comparación
 
-_Pendiente._
+### Minutos alertados por kind (los 6 detectores)
+
+| kind | n | ¿anómalo? | k-sigma error | k-sigma lat | MAD error | MAD lat | IF | OCSVM |
+|---|---|---|---|---|---|---|---|---|
+| micro_burst | 2 | sí | 2 | 2 | 2 | 2 | 2 | 2 |
+| incidente_5xx | 8 | sí | 8 | 6 | 8 | 8 | 8 | 4 |
+| timeouts | 4 | sí | 0 | 0 | 4 | 4 | 4 | 2 |
+| spike_error | 3 | sí | 0 | 0 | 3 | 0 | 0 | 2 |
+| latencia_silenciosa | 6 | sí | 0 | 0 | 0 | 6 | 1 | 3 |
+| cpu_latencia | 5 | sí | 0 | 0 | 0 | 5 | 5 | 3 |
+| degradacion | 18 | sí | 0 | 0 | 0 | 11 | 0 | 1 |
+| combo_sutil | 7 | sí | 0 | 0 | 0 | 0 | 4 | 1 |
+| batch | 20 | **no** | 0 | 0 | 0 | 0 | 4 | 5 |
+| pico_carga | 8 | **no** | 0 | 0 | 0 | 0 | 0 | 2 |
+| normal | 219 | **no** | 0 | 0 | 1 | 0 | 2 | 4 |
+
+### Métricas sobre las 300 ventanas
+
+| Detector | Alertas | Precision | Recall | F1 |
+|---|---|---|---|---|
+| k-sigma error | 10 | 1.000 | 0.189 | 0.317 |
+| k-sigma lat | 8 | 1.000 | 0.151 | 0.262 |
+| MAD error | 18 | 0.944 | 0.321 | 0.479 |
+| MAD lat | 36 | 1.000 | 0.679 | **0.809** |
+| Isolation Forest | 30 | 0.800 | 0.453 | 0.578 |
+| One-Class SVM | 29 | 0.621 | 0.340 | 0.439 |
+
+### Conclusiones
+
+- **Ningún detector cubre todo.** Cada kind anómalo tiene al menos un detector que lo ve, pero ninguno los ve todos. MAD lat tiene el mejor F1 y aun así se pierde spike_error y combo_sutil por completo.
+- **k-sigma es el más débil.** Su σ está inflada por los mismos incidentes que tendría que detectar, así que solo ve los dos casos extremos (incidente_5xx y micro_burst). Tiene precision perfecta pero un recall muy bajo.
+- **MAD es k-sigma bien hecho.** Con la misma lógica, pero con una escala robusta, el recall sube de 0.15 a 0.68 en latencia, sin falsos positivos.
+- **El F1 alto de MAD lat depende del dataset.** 6 de los 8 kinds anómalos rompen la latencia. Si las anomalías fueran otras, el ranking entre detectores cambiaría.
+- **Lo que solo ven los multivariados:** combo_sutil. IF marca 4 de 7, y ningún univariado marca ninguno.
+- **El costo de los multivariados son las trampas.** Son los únicos que marcan batch, y OCSVM además marca pico_carga. Ven la CPU y los bordes de la nube, y no tienen forma de saber que son operación legítima.
+- **IF y OCSVM con el mismo presupuesto dan resultados distintos:** IF tiene F1 0.58 y OCSVM 0.44 (ver pregunta 7).
+- **El presupuesto limita a los multivariados.** Con `contamination` y `nu` en 0.10 hay unas 30 alertas para 53 anomalías, así que su recall nunca puede pasar de 0.57.
 
 ---
 
 ## Respuestas a las preguntas
 
-**1. σ de k-sigma contra la escala MAD en `error_rate`.**
+### 1. Comparen σ de k-sigma contra la escala MAD en `error_rate`. ¿Qué le hicieron los `spike_error` y el `micro_burst` a cada una? ¿Se ve el mismo efecto en `latency_ms`?
+
 En error_rate, σ = 0.0072 y la escala MAD = 0.0016, unas 4.5 veces menos. Los valores del micro_burst (~0.063), del incidente_5xx (~0.042), de los timeouts (~0.025) y de los spike_error (~0.023) están muy lejos de la media. Como σ suma desvíos al cuadrado, esos pocos minutos la inflan: el umbral de k-sigma sube a 0.0328 y los propios spikes quedan debajo (score máximo 1.88). La mediana (0.0097) y la MAD (0.0010) apenas se mueven, porque esos minutos son menos del 10% de la muestra y no cambian qué valor queda en el medio. Con MAD el umbral es 0.0144 y los 3 spikes se detectan, con scores de 8.3 a 9.7.
 
 En latency_ms pasa lo mismo: σ = 38.5 ms contra una escala MAD de 11.6 ms, unas 3.3 veces menos. Ahí la inflan incidente_5xx, micro_burst, timeouts, cpu_latencia, latencia_silenciosa y degradacion. El umbral baja de 226 ms con k-sigma a 134 ms con MAD.
 
-**2. Kinds que se encienden en error y no en latencia, y al revés.**
+### 2. ¿Qué kinds prende k-sigma sobre error rate y no prende sobre latencia? ¿Y al revés? ¿Por qué `latencia_silenciosa` es el ejemplo canónico?
+
 Con k-sigma casi no hay diferencia: solo se encienden incidente_5xx y micro_burst, en los dos ejes. La excepción son 2 minutos de incidente_5xx que se encienden en error y no en latencia.
 
 Con MAD la separación es clara:
@@ -250,7 +288,8 @@ Con MAD la separación es clara:
 
 latencia_silenciosa es el caso canónico porque solo se rompe un eje: la latencia sube a unos 213 ms y el error rate sigue normal (score MAD máximo 0.93). Un detector de error no la puede ver nunca. Uno de latencia la ve solo si su escala no está inflada: con k-sigma queda en 2.98 y no alerta, con MAD llega a 9.85 de mediana y alerta los 6 minutos.
 
-**3. ¿combo_sutil cruza k = 3 en algún eje?**
+### 3. ¿Algún minuto de `combo_sutil` cruza k = 3 en un eje solo? Si no, ¿lo ranquean IF u OCSVM cerca de la cima aunque la flag no se encienda?
+
 No, con ninguno de los dos univariados. Con k-sigma el score máximo es 0.38 en error y 0.43 en latencia, igual que un minuto normal. Con MAD sube a 2.73 en error y 2.40 en latencia: queda arriba de casi todos los normales en el ranking, pero bajo el umbral. Su error rate (0.0132 a 0.0140) está justo debajo del umbral MAD de 0.0144. Lo raro de combo_sutil es la combinación de poco tráfico con error alto, y eso un detector de un solo eje no lo puede ver.
 
 Los multivariados sí lo ponen arriba en el ranking:
@@ -260,7 +299,8 @@ Los multivariados sí lo ponen arriba en el ranking:
 
 IF es el que mejor lo ve. Igual, hasta con IF la mitad de los minutos queda en el ranking sin encender la flag.
 
-**4. pico_carga contra incidente_5xx en el plano requests–error.**
+### 4. Tomen un minuto de `pico_carga` y uno de `incidente_5xx`. En el plano requests–error rate, ¿quién está al borde de la nube y quién afuera? ¿Coinciden las flags 4D con esa geometría?
+
 En promedio, pico_carga está en (174 requests, error 0.0115) e incidente_5xx en (37 requests, error 0.042).
 
 - **pico_carga está al borde de la nube:** es el extremo derecho de la franja normal. Tiene más tráfico que cualquier otro minuto, pero su error rate es el que corresponde a esa carga.
@@ -271,14 +311,16 @@ Las flags de los dos multivariados no responden igual a esa geometría:
 - **Isolation Forest coincide:** 0 de 8 en pico_carga y 8 de 8 en incidente_5xx.
 - **One-Class SVM no:** marca 2 de 8 en pico_carga (11:18 y 11:25, con 180 requests o más) y solo 4 de 8 en incidente_5xx. La frontera RBF corta el extremo legítimo de la nube y deja parcialmente adentro al grupo compacto del incidente.
 
-**5. ¿Qué detector trata al batch como anomalía?**
+### 5. El `batch` es legítimo. ¿Qué detector lo trata como anomalía y por qué un modo raro (aunque operativo) se parece a un outlier?
+
 Ni k-sigma ni MAD lo marcan en ninguno de sus 20 minutos. Ninguno de los dos mira CPU, que es el único eje que se mueve en el batch. El score MAD máximo del batch es 1.79 en error y 2.20 en latencia. Isolation Forest sí incluye cpu_pct y marca 4 de los 20 minutos de batch, con score máximo 0.600 y mejor posición 16 en el ranking. Un modo raro se parece a un outlier porque IF mide qué tan rápido se aísla un punto, y el batch es poco frecuente: 20 minutos con CPU de ~76%, contra un 38% típico. IF no sabe si es un modo planificado o una falla, solo ve que hay pocos puntos en esa zona.
 
 One-Class SVM marca 5 de los 20 minutos, todavía más que IF, y uno de ellos (08:29, CPU 82%) queda en la posición 5 del ranking. Una frontera ajustada al volumen donde está la mayoría de los datos deja afuera cualquier zona poco poblada, sea una falla o un modo operativo.
 
 Los dos multivariados se equivocan por la misma razón: un detector no supervisado mide qué tan raro es un punto, no si es malo. Para no marcar el batch habría que darle contexto, por ejemplo una feature que indique si hay un job programado o una ventana de mantenimiento conocida.
 
-**6. Primer minuto de degradacion que enciende cada método.**
+### 6. En `degradacion`, ¿cuál es el primer minuto que cada método enciende? ¿Qué le falta a un detector i.i.d. minuto a minuto?
+
 La degradación arranca a las 11:50.
 
 - **k-sigma lat:** no enciende ninguno de los 18 minutos. Su score máximo es 2.55, a las 12:06, con 209 ms.
@@ -291,7 +333,8 @@ MAD lat es el que antes la detecta, a las 11:57. Los multivariados la ven peor, 
 
 A un detector i.i.d., que evalúa cada minuto por separado, le falta memoria. Cada minuto de 11:51 a 11:56 parece apenas alto, y no tiene en cuenta que la latencia viene subiendo seis minutos seguidos. Un detector con contexto temporal la vería antes: uno que mire la tendencia o la pendiente, que acumule desvíos como CUSUM o EWMA, o que use una ventana de varios minutos como feature.
 
-**7. ¿nu = 0.10 y contamination = 0.10 dan el mismo F1?**
+### 7. `nu=0.10` y `contamination=0.10` recortan más o menos el mismo presupuesto de alertas. ¿Obtienen el mismo F1? Si no, ¿dónde se pelean?
+
 No. Los dos usan un presupuesto parecido (30 alertas IF, 29 OCSVM), pero:
 
 | Detector | Alertas | Correctas | Falsos positivos | Precision | Recall | F1 |
