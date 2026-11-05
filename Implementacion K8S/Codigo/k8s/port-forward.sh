@@ -79,3 +79,5 @@ echo "  Elasticsearch: http://127.0.0.1:${ES_LOCAL_PORT}"
 echo ""
 echo "Port-forwards activos. Para detener: ./port-forward.sh --stop"
 echo ""
+
+kubectl port-forward svc/jaeger 16686:16686 -n pharmago &

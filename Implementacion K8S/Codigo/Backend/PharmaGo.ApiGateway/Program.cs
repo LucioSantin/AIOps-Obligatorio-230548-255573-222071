@@ -6,6 +6,8 @@ using PharmaGo.ApiGateway.Middleware;
 using Instrumentation;
 using InstrumentationInterface;
 using Yarp.ReverseProxy.Transforms;
+using OpenTelemetry.Trace;
+using OpenTelemetry.Exporter;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -54,8 +56,32 @@ builder.Services.AddOpenTelemetry()
             .AddAspNetCoreInstrumentation()
             .AddHttpClientInstrumentation()
             .AddMeter("PharmaGo.CustomMetrics")
-            .AddPrometheusExporter();
-    });
+            .AddPrometheusExporter()
+            .AddOtlpExporter(o =>
+            {
+                o.Endpoint = new Uri("http://otlp-collector:4317");
+                o.Protocol = OtlpExportProtocol.Grpc;
+            });
+    })
+     .WithTracing(tracing => tracing
+        .SetResourceBuilder(ResourceBuilder.CreateDefault().AddService("PharmaGo.ApiGateway"))
+        .AddAspNetCoreInstrumentation(o =>
+        {
+            // No trazar las probes ni el scrape de Prometheus
+            o.Filter = ctx => !ctx.Request.Path.StartsWithSegments("/health")
+                           && !ctx.Request.Path.StartsWithSegments("/metrics");
+            o.RecordException = true;
+        })
+        .AddHttpClientInstrumentation(o =>
+        {
+            o.FilterHttpRequestMessage = req => req.RequestUri?.AbsolutePath.StartsWith("/health") != true;
+            o.RecordException = true;
+        })
+        .AddOtlpExporter(o =>
+        {
+            o.Endpoint = new Uri("http://otlp-collector:4317");
+            o.Protocol = OtlpExportProtocol.Grpc;
+        }));
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();

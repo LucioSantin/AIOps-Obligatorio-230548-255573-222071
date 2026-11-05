@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using InstrumentationInterface;
+using System.Diagnostics;
 
 namespace Instrumentation
 {
@@ -96,18 +97,17 @@ namespace Instrumentation
 
         private string ResolveCorrelationId()
         {
+            var activity = Activity.Current;
+            if (activity != null)
+                return activity.TraceId.ToHexString();
+
             var ctx = _httpContextAccessor.HttpContext;
             if (ctx == null)
                 return "none";
 
             if (ctx.Items.TryGetValue(CorrelationIdMiddlewareExtensions.HttpContextItemKey, out var item)
-                && item is string fromItems
-                && !string.IsNullOrEmpty(fromItems))
+                && item is string fromItems && !string.IsNullOrEmpty(fromItems))
                 return fromItems;
-
-            var header = ctx.Request.Headers["X-Correlation-ID"].FirstOrDefault();
-            if (!string.IsNullOrWhiteSpace(header))
-                return header.Trim();
 
             return ctx.TraceIdentifier;
         }
@@ -119,7 +119,9 @@ namespace Instrumentation
                 ["timestamp_utc"] = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture),
                 ["level"] = ToLevelLabel(logLevel),
                 ["service"] = _hostEnvironment.ApplicationName,
-                ["correlation_id"] = correlationId
+                ["correlation_id"] = correlationId,
+                ["trace_id"] = Activity.Current?.TraceId.ToHexString() ?? "none",
+                ["span_id"]  = Activity.Current?.SpanId.ToHexString() ?? "none",
             };
 
             if (metadata != null)

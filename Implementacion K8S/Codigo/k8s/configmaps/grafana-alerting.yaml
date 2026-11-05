@@ -1,0 +1,263 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-alerting
+  namespace: pharmago
+data:
+  alerts.yml: |
+    apiVersion: 1
+    groups:
+      - orgId: 1
+        name: pharmago-anomalias
+        folder: PharmaGo
+        interval: 10s
+        rules:
+
+          - uid: pharmago-cpu-alta
+            title: CPU alta en pod
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange: { from: 300, to: 0 }
+                datasourceUid: prometheus
+                model:
+                  refId: A
+                  instant: true
+                  expr: >-
+                    sum by (pod) (rate(container_cpu_usage_seconds_total{namespace="pharmago",container!="",container!="POD"}[1m]))
+                    /
+                    (sum by (pod) (container_spec_cpu_quota{namespace="pharmago",container!="",container!="POD"} > 0) / 100000)
+              - refId: B
+                datasourceUid: __expr__
+                model: { refId: B, type: reduce, expression: A, reducer: last }
+              - refId: C
+                datasourceUid: __expr__
+                model:
+                  refId: C
+                  type: threshold
+                  expression: B
+                  conditions:
+                    - evaluator: { type: gt, params: [0.8] }
+            for: 30s
+            noDataState: OK
+            execErrState: Error
+            labels: { severity: warning }
+            annotations:
+              summary: "El pod {{ $$labels.pod }} usa más del 80% de su límite de CPU"
+
+          - uid: pharmago-memoria-alta
+            title: Memoria alta en pod
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange: { from: 300, to: 0 }
+                datasourceUid: prometheus
+                model:
+                  refId: A
+                  instant: true
+                  expr: >-
+                    sum by (pod) (container_memory_working_set_bytes{namespace="pharmago",container!="",container!="POD"})
+                    /
+                    sum by (pod) (container_spec_memory_limit_bytes{namespace="pharmago",container!="",container!="POD"} > 0)
+              - refId: B
+                datasourceUid: __expr__
+                model: { refId: B, type: reduce, expression: A, reducer: last }
+              - refId: C
+                datasourceUid: __expr__
+                model:
+                  refId: C
+                  type: threshold
+                  expression: B
+                  conditions:
+                    - evaluator: { type: gt, params: [0.85] }
+            for: 30s
+            noDataState: OK
+            execErrState: Error
+            labels: { severity: warning }
+            annotations:
+              summary: "El pod {{ $$labels.pod }} usa más del 85% de su límite de memoria"
+
+          - uid: pharmago-disco-nodo
+            title: Disco del nodo casi lleno
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange: { from: 300, to: 0 }
+                datasourceUid: prometheus
+                model:
+                  refId: A
+                  instant: true
+                  expr: >-
+                    max by (node) (1 - node_filesystem_avail_bytes{mountpoint=~"/|/var"} / node_filesystem_size_bytes{mountpoint=~"/|/var"})
+              - refId: B
+                datasourceUid: __expr__
+                model: { refId: B, type: reduce, expression: A, reducer: last }
+              - refId: C
+                datasourceUid: __expr__
+                model:
+                  refId: C
+                  type: threshold
+                  expression: B
+                  conditions:
+                    - evaluator: { type: gt, params: [0.85] }
+            for: 1m
+            noDataState: OK
+            execErrState: Error
+            labels: { severity: critical }
+            annotations:
+              summary: "El disco del nodo {{ $$labels.node }} está por encima del 85%"
+
+          - uid: pharmago-errores-http
+            title: Pico de errores HTTP
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange: { from: 300, to: 0 }
+                datasourceUid: prometheus
+                model:
+                  refId: A
+                  instant: true
+                  expr: >-
+                    sum by (job) (rate({__name__=~"pharmago_http_errors_total.*",job=~"PharmaGo.*"}[1m]))
+              - refId: B
+                datasourceUid: __expr__
+                model: { refId: B, type: reduce, expression: A, reducer: last }
+              - refId: C
+                datasourceUid: __expr__
+                model:
+                  refId: C
+                  type: threshold
+                  expression: B
+                  conditions:
+                    - evaluator: { type: gt, params: [2] }
+            for: 15s
+            noDataState: OK
+            execErrState: Error
+            labels: { severity: warning }
+            annotations:
+              summary: "{{ $$labels.job }} está respondiendo más de 2 errores por segundo"
+
+          - uid: pharmago-dependencia-caida
+            title: Base de datos inaccesible
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange: { from: 300, to: 0 }
+                datasourceUid: prometheus
+                model:
+                  refId: A
+                  instant: true
+                  expr: >-
+                    min by (job) (pharmago_health_status{job=~"PharmaGo.UsersService|PharmaGo.PharmacyService"})
+              - refId: B
+                datasourceUid: __expr__
+                model: { refId: B, type: reduce, expression: A, reducer: last }
+              - refId: C
+                datasourceUid: __expr__
+                model:
+                  refId: C
+                  type: threshold
+                  expression: B
+                  conditions:
+                    - evaluator: { type: lt, params: [1] }
+            for: 15s
+            noDataState: OK
+            execErrState: Error
+            labels: { severity: critical }
+            annotations:
+              summary: "{{ $$labels.job }} no puede conectarse a la base de datos"
+
+          - uid: pharmago-replicas-caidas
+            title: Réplica de microservicio caída
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange: { from: 300, to: 0 }
+                datasourceUid: prometheus
+                model:
+                  refId: A
+                  instant: true
+                  expr: >-
+                    sum by (job) (up{job=~"users-service|pharmacy-service|api-gateway"})
+                    or label_replace(vector(0), "job", "users-service", "", "")
+                    or label_replace(vector(0), "job", "pharmacy-service", "", "")
+                    or label_replace(vector(0), "job", "api-gateway", "", "")
+              - refId: B
+                datasourceUid: __expr__
+                model: { refId: B, type: reduce, expression: A, reducer: last }
+              - refId: C
+                datasourceUid: __expr__
+                model:
+                  refId: C
+                  type: threshold
+                  expression: B
+                  conditions:
+                    - evaluator: { type: lt, params: [2] }
+            for: 0s
+            noDataState: Alerting
+            execErrState: Error
+            labels: { severity: critical }
+            annotations:
+              summary: "{{ $$labels.job }} tiene menos de 2 réplicas respondiendo"
+
+          - uid: pharmago-latencia-alta
+            title: Latencia alta en microservicio
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange: { from: 300, to: 0 }
+                datasourceUid: prometheus
+                model:
+                  refId: A
+                  instant: true
+                  expr: >-
+                    sum by (job) (rate(pharmago_http_request_duration_milliseconds_sum{job=~"PharmaGo.*"}[1m]))
+                    /
+                    sum by (job) (rate(pharmago_http_request_duration_milliseconds_count{job=~"PharmaGo.*"}[1m]))
+              - refId: B
+                datasourceUid: __expr__
+                model: { refId: B, type: reduce, expression: A, reducer: last }
+              - refId: C
+                datasourceUid: __expr__
+                model:
+                  refId: C
+                  type: threshold
+                  expression: B
+                  conditions:
+                    - evaluator: { type: gt, params: [1000] }
+            for: 30s
+            noDataState: OK
+            execErrState: Error
+            labels: { severity: warning }
+            annotations:
+              summary: "{{ $$labels.job }} tiene latencia promedio mayor a 1 s"
+
+          - uid: pharmago-red-caida
+            title: Pod de backend sin tráfico de red
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange: { from: 300, to: 0 }
+                datasourceUid: prometheus
+                model:
+                  refId: A
+                  instant: true
+                  expr: >-
+                    sum by (pod) (rate(container_network_receive_bytes_total{namespace="pharmago",pod=~"pharmago-(api-gateway|users-service|pharmacy-service)-.*"}[1m]))
+              - refId: B
+                datasourceUid: __expr__
+                model: { refId: B, type: reduce, expression: A, reducer: last }
+              - refId: C
+                datasourceUid: __expr__
+                model:
+                  refId: C
+                  type: threshold
+                  expression: B
+                  conditions:
+                    - evaluator: { type: lt, params: [100] }
+            for: 20s
+            noDataState: OK
+            execErrState: Error
+            labels: { severity: critical }
+            annotations:
+              summary: "El pod {{ $$labels.pod }} casi no recibe tráfico de red (posible corte)"
