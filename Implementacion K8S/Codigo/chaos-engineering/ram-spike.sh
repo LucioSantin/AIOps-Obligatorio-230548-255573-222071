@@ -8,4 +8,4 @@ if [ -z "$POD" ]; then
   exit 1
 fi
 echo "RAM spike: $POD (${MB}MB)"
-kubectl exec -n pharmago "$POD" -- sh -c "dd if=/dev/zero of=/dev/shm/fill bs=1M count=$MB 2>/dev/null || dd if=/dev/zero of=/tmp/fill bs=1M count=$MB"
+kubectl exec -n pharmago "$POD" -- sh -c 'i=0; while [ $i -lt '"$MB"' ]; do i=$((i+10)); eval "v$i=\$(head -c 10M /dev/zero | tr \"\\000\" a)"; sleep 1; done; sleep 90'

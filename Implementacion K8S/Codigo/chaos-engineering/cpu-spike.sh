@@ -9,4 +9,4 @@ if [ -z "$POD" ]; then
   exit 1
 fi
 echo "CPU spike: $POD (${SECS}s)"
-kubectl exec -n pharmago "$POD" -- sh -c "(while :;do :;done)& (while :;do :;done)& (while :;do :;done)& (while :;do :;done)& sleep $SECS"
+kubectl exec -n pharmago "$POD" -- sh -c "for i in 1 2 3 4; do timeout $SECS sh -c 'while :; do :; done' & done; wait"
