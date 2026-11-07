@@ -8,4 +8,4 @@ if [ -z "$POD" ]; then
   exit 1
 fi
 echo "Volume spike: $POD (${MB}MB)"
-kubectl exec -n pharmago "$POD" -- sh -c "dd if=/dev/zero of=/tmp/chaos_fill bs=1M count=$MB"
+kubectl exec -n pharmago "$POD" -- sh -c "dd if=/dev/zero of=/tmp/chaos_fill bs=1M count=$MB; sleep 60; rm -f /tmp/chaos_fill"

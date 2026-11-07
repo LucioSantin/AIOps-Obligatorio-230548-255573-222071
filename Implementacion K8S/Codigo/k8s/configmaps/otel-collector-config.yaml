@@ -12,6 +12,8 @@ data:
             endpoint: "0.0.0.0:4317"
       prometheus:
         config:
+          global:
+            scrape_interval: 10s
           scrape_configs:
             - job_name: 'node-exporter'
               metrics_path: /metrics
