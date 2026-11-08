@@ -6,6 +6,8 @@
 #   red  (por defecto) corta la red de todas las réplicas de pharmacy-service (requests colgados)
 #   base baja la base de datos (pharmacy-service responde errores y queda sin réplicas READY)
 cd "$(dirname "$0")"
+# En Git Bash (Windows) evita que rutas como /tmp/log se conviertan a rutas de Windows al pasarlas a kubectl
+export MSYS_NO_PATHCONV=1
 NS=pharmago
 PROBE=breaker-probe
 MODO="${1:-red}"
@@ -57,16 +59,18 @@ done
 sleep 5
 
 LOG=$(mktemp)
-kubectl exec $PROBE -n $NS -- cat /tmp/log > "$LOG"
+kubectl exec $PROBE -n $NS -- sh -c 'cat /tmp/log' > "$LOG"
+# GUARDAR_LOG=archivo.log ./circuit-breaker.sh guarda cada request (segundo, código, latencia, header)
+[ -n "$GUARDAR_LOG" ] && cp "$LOG" "$GUARDAR_LOG"
 kubectl delete pod $PROBE -n $NS --wait=false > /dev/null
 
 echo ""
-echo "===== Cambios de estado del circuito (logs del gateway, cada réplica tiene su circuito)"
-kubectl logs -n $NS -l app=pharmago-api-gateway --since=$(( $(date +%s) - INICIO + 5 ))s --prefix --timestamps 2>/dev/null \
+echo "===== Cambios de estado del circuito (logs del gateway en UTC, cada réplica tiene su circuito)"
+kubectl logs -n $NS -l app=pharmago-api-gateway --since=$(( $(date +%s) - INICIO ))s --prefix --timestamps --tail=-1 2>/dev/null \
   | grep '"Message":"Circuito' \
-  | sed -E 's/^\[pod\/([^/]*)\/[^]]*\] ([0-9T:-]*)\.[^ ]* .*"Message":"([^"]*)".*/  \2  \1  \3/; s/ correlation_id=[a-f0-9]*//' \
+  | sed -E 's/^\[pod\/([^/]*)\/[^]]*\] [0-9-]*T([0-9:]*)\.[^ ]* .*"Message":"(Circuito[^"]*)".*/  \2  \1  \3/; s/ correlation_id=[a-f0-9]*//' \
   | sed 's/\\u00E1/á/g; s/\\u00F3/ó/g' \
-  | sort
+  | sort -s -k1,1
 
 echo ""
 echo "===== Respuestas del gateway por fase"
