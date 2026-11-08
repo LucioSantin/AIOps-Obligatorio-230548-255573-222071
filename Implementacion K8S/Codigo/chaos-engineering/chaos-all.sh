@@ -1,5 +1,5 @@
 #!/bin/bash
-# Corre todos los experimentos de caos en orden. Uso: ./chaos-all.sh [requests|cpu|memoria|disco|red|componente]
+# Corre todos los experimentos de caos en orden. Uso: ./chaos-all.sh [requests|cpu|memoria|disco|red|componente|breaker]
 cd "$(dirname "$0")"
 PAUSA=60
 
@@ -9,6 +9,7 @@ memoria()    { bash ram-spike.sh pharmago-pharmacy-service 270; }
 disco()      { bash volume-spike.sh pharmago-pharmacy-service 200; }
 red()        { bash network-cut.sh pharmago-users-service 60; }
 componente() { bash disconnect-component.sh pharmago-db 60; }
+breaker()    { bash circuit-breaker.sh red 40; }
 
 correr() {
   echo ""
@@ -22,7 +23,7 @@ if [ -n "$1" ]; then
   exit 0
 fi
 
-for t in requests cpu memoria disco red componente; do
+for t in requests cpu memoria disco red componente breaker; do
   correr $t
   echo "Esperando ${PAUSA}s para que se recupere..."
   sleep $PAUSA

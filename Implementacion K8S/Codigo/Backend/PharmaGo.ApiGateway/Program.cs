@@ -3,6 +3,7 @@ using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using AspNetCoreRateLimit;
 using PharmaGo.ApiGateway.Middleware;
+using PharmaGo.ApiGateway.Resilience;
 using Instrumentation;
 using InstrumentationInterface;
 using Yarp.ReverseProxy.Transforms;
@@ -21,8 +22,12 @@ if (rateLimitMode.Equals("IP", StringComparison.OrdinalIgnoreCase))
     builder.Services.Configure<IpRateLimitOptions>(builder.Configuration.GetSection("IpRateLimiting"));
     builder.Services.Configure<IpRateLimitPolicies>(builder.Configuration.GetSection("IpRateLimitPolicies"));
     builder.Services.AddInMemoryRateLimiting();
-    builder.Services.AddSingleton<IRateLimitConfiguration, RateLimitConfiguration>();
+    // Toma la IP de la conexión y no del header X-Real-IP, que el cliente puede falsificar
+    builder.Services.AddSingleton<IRateLimitConfiguration, ConnectionIpRateLimitConfiguration>();
 }
+
+// Circuit breaker por cluster: corta el tráfico hacia un microservicio que está fallando
+builder.Services.AddClusterCircuitBreakers(builder.Configuration);
 
 builder.Services.AddReverseProxy()
     .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"))
@@ -122,7 +127,15 @@ else if (rateLimitMode.Equals("User", StringComparison.OrdinalIgnoreCase))
 app.UseAuthorization();
 
 app.MapPharmaGoHealthChecks();
-app.MapReverseProxy();
+// Pipeline por defecto de YARP con el circuit breaker adelante, para que con el circuito
+// abierto el request se rechace sin pasar por el balanceo ni llegar al microservicio
+app.MapReverseProxy(proxyPipeline =>
+{
+    proxyPipeline.UseClusterCircuitBreaker();
+    proxyPipeline.UseSessionAffinity();
+    proxyPipeline.UseLoadBalancing();
+    proxyPipeline.UsePassiveHealthChecks();
+});
 app.MapPrometheusScrapingEndpoint();
 
 app.Run();

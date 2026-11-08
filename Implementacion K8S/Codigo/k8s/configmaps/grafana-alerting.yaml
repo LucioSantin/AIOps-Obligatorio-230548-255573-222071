@@ -261,3 +261,34 @@ data:
             labels: { severity: critical }
             annotations:
               summary: "El pod {{ $$labels.pod }} casi no recibe tráfico de red (posible corte)"
+
+          - uid: pharmago-circuito-abierto
+            title: Circuit breaker abierto
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange: { from: 300, to: 0 }
+                datasourceUid: prometheus
+                model:
+                  refId: A
+                  instant: true
+                  # 0 cerrado, 1 half-open, 2 abierto; max entre las réplicas del gateway
+                  expr: >-
+                    max by (cluster) (pharmago_circuit_breaker_state{job="PharmaGo.ApiGateway"})
+              - refId: B
+                datasourceUid: __expr__
+                model: { refId: B, type: reduce, expression: A, reducer: last }
+              - refId: C
+                datasourceUid: __expr__
+                model:
+                  refId: C
+                  type: threshold
+                  expression: B
+                  conditions:
+                    - evaluator: { type: gt, params: [0] }
+            for: 0s
+            noDataState: OK
+            execErrState: Error
+            labels: { severity: critical }
+            annotations:
+              summary: "El gateway cortó el tráfico hacia {{ $$labels.cluster }}: el servicio está fallando (5xx o timeouts)"

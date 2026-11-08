@@ -69,18 +69,10 @@ namespace PharmaGo.ApiGateway.Middleware
                 return $"user:{userId}";
             }
 
-            // 3. Fallback a IP (para endpoints públicos como login)
+            // 3. Fallback a IP (para endpoints públicos como login). Solo la IP de la conexión:
+            // X-Forwarded-For y X-Real-IP los puede mandar el cliente con cualquier valor
+            // y no hay un proxy de confianza delante del gateway que los pise.
             var ip = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-            
-            // Si viene de un proxy, intentar obtener la IP real
-            if (context.Request.Headers.TryGetValue("X-Forwarded-For", out var forwardedFor))
-            {
-                ip = forwardedFor.ToString().Split(',')[0].Trim();
-            }
-            else if (context.Request.Headers.TryGetValue("X-Real-IP", out var realIp))
-            {
-                ip = realIp.ToString();
-            }
 
             return $"ip:{ip}";
         }
