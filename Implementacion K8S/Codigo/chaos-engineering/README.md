@@ -6,11 +6,11 @@ Requiere: app en K8s + port-forward activo.
 
 | Script | Uso | Que rompe |
 |--------|-----|-----------|
-| `load-requests.sh` | `bash load-requests.sh [cantidad] [url]` | Manda muchas requests al login |
+| `load-requests.sh` | `bash load-requests.sh [cantidad] [url]` | Manda muchas requests al login y muestra cuántas respuestas hubo de cada código (429 = cortadas por el rate limit). Necesita el port-forward del gateway y avisa si no está |
 | `cpu-spike.sh` | `bash cpu-spike.sh [deployment] [segundos]` | Pone la CPU de un pod al maximo |
 | `ram-spike.sh` | `bash ram-spike.sh [deployment] [MB]` | Llena la memoria de un pod de a 10 MB por segundo |
 | `volume-spike.sh` | `bash volume-spike.sh [deployment] [MB]` | Escribe un archivo grande en el disco del pod |
-| `network-cut.sh` | `bash network-cut.sh [deployment] [segundos] [uno\|todos]` | Corta la red de un pod (o de todas las réplicas con `todos`) y despues la restaura |
+| `network-cut.sh` | `bash network-cut.sh [deployment] [segundos] [uno\|todos]` | Corta la red de un pod (o de todas las réplicas con `todos`) y despues la restaura. Funciona con containerd y docker como runtime |
 | `disconnect-component.sh` | `bash disconnect-component.sh [deployment] [segundos]` | Baja un componente interno (por defecto la base) y lo vuelve a levantar |
 | `circuit-breaker.sh` | `bash circuit-breaker.sh [red\|base] [segundos]` | Rompe pharmacy-service (corta su red o baja la base) y verifica que el gateway abra el circuito |
 | `chaos-all.sh` | `bash chaos-all.sh` o `bash chaos-all.sh cpu` | Corre todos en orden, o uno solo (requests, cpu, memoria, disco, red, componente, breaker) |
