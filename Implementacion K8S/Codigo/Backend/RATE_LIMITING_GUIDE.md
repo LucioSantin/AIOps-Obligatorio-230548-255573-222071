@@ -54,8 +54,8 @@ Usuario C (navegador) ──┘
 ### Opción 2: Rate Limiting por IP
 
 **Cómo funciona:**
-- Usa la IP del cliente (con soporte para proxies)
-- Lee headers `X-Forwarded-For` y `X-Real-IP`
+- Usa la IP de la conexión TCP del cliente (`ConnectionIpRateLimitConfiguration`)
+- **No** lee `X-Forwarded-For` ni `X-Real-IP`: delante del gateway no hay un proxy de confianza que los pise, así que un cliente podría mandar un valor distinto en cada request y esquivar el límite. Si en algún momento se pone un Ingress delante, habría que confiar en esos headers solo cuando vienen de la IP del Ingress (`ForwardedHeaders` con `KnownProxies`)
 
 **Configuración en `appsettings.json`:**
 
@@ -66,7 +66,6 @@ Usuario C (navegador) ──┘
   },
   "IpRateLimiting": {
     "EnableEndpointRateLimiting": true,
-    "RealIpHeader": "X-Real-IP",
     "GeneralRules": [
       {
         "Endpoint": "POST:/api/login",
