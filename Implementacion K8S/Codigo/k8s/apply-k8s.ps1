@@ -57,10 +57,11 @@ if ($LASTEXITCODE -ne 0) { exit 1 }
 
 # Eliminar PVs existentes en estado Release
 Write-Host "   Limpiando PVs existentes..." -ForegroundColor Cyan
-kubectl delete pv sql-pv elasticsearch-pv prometheus-pv grafana-pv --ignore-not-found=true
+kubectl delete pv sql-pv sql-backup-pv elasticsearch-pv prometheus-pv grafana-pv --ignore-not-found=true
 Start-Sleep -Seconds 2
 
 kubectl apply -f persistent-volumes\sql-pv.yaml
+kubectl apply -f persistent-volumes\sql-backup-pv.yaml
 kubectl apply -f persistent-volumes\elasticsearch-pv.yaml
 kubectl apply -f persistent-volumes\prometheus-pv.yaml
 kubectl apply -f persistent-volumes\grafana-pv.yaml
@@ -69,6 +70,7 @@ if ($LASTEXITCODE -ne 0) { exit 1 }
 Write-Host "`n6. Desplegando base de datos..." -ForegroundColor Yellow
 kubectl apply -f services\ops\db-service.yaml
 kubectl apply -f deployments\ops\db-deployment.yaml
+kubectl apply -f cronjobs\db-backup-cronjob.yaml
 if ($LASTEXITCODE -ne 0) { exit 1 }
 
 Write-Host "`n   Esperando a que la base de datos esté lista..." -ForegroundColor Yellow
@@ -126,6 +128,8 @@ kubectl apply -f services\ops\prometheus-service.yaml
 kubectl apply -f deployments\ops\prometheus-deployment.yaml
 kubectl apply -f services\ops\node-exporter-service.yaml
 kubectl apply -f deployments\ops\node-exporter-daemonset.yaml
+kubectl apply -f services\ops\kube-state-metrics-service.yaml
+kubectl apply -f deployments\ops\kube-state-metrics.yaml
 
 kubectl apply -f services\ops\grafana-service.yaml
 kubectl apply -f deployments\ops\grafana-deployment.yaml
@@ -150,6 +154,9 @@ if ($LASTEXITCODE -ne 0) { exit 1 }
 Write-Host "`n9. Desplegando frontend..." -ForegroundColor Yellow
 kubectl apply -f services\frontend\ui-service.yaml
 kubectl apply -f deployments\frontend\ui-deployment.yaml
+
+Write-Host "`n10. Creando PodDisruptionBudgets..." -ForegroundColor Yellow
+kubectl apply -f pdb\pharmago-pdbs.yaml
 
 if ($LASTEXITCODE -ne 0) { exit 1 }
 

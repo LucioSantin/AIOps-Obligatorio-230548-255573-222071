@@ -22,7 +22,14 @@ spec:
             - matchExpressions:
               - key: node-type
                 operator: In
-                values: [ops, all]
+                values: [backend, ops, all]
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+              - key: node-type
+                operator: In
+                values: [backend]
       containers:
       - name: kibana
         image: docker.elastic.co/kibana/kibana:8.11.0

@@ -1,0 +1,62 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: pharmago-db-backup
+  namespace: pharmago
+spec:
+  schedule: "0 3 * * *"
+  timeZone: America/Montevideo
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 240
+      template:
+        metadata:
+          labels:
+            app: pharmago-db-backup
+        spec:
+          restartPolicy: Never
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: node-type
+                    operator: In
+                    values: [ops, all]
+          securityContext:
+            runAsUser: 10001
+          containers:
+          - name: backup
+            image: mcr.microsoft.com/mssql/server:2019-latest
+            imagePullPolicy: IfNotPresent
+            env:
+            - name: SA_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-secret
+                  key: SA_PASSWORD
+            - name: KEEP
+              value: "7"
+            command: ["/bin/bash", "-c"]
+            args:
+              - |
+                set -euo pipefail
+                FILE="/var/opt/mssql/backup/PharmaDb_$(date -u +%Y%m%d_%H%M%S).bak"
+                /opt/mssql-tools18/bin/sqlcmd -S pharmago-db -U sa -P "$SA_PASSWORD" -C -b -Q \
+                  "BACKUP DATABASE [PharmaDb] TO DISK = N'$FILE' WITH CHECKSUM, INIT; RESTORE VERIFYONLY FROM DISK = N'$FILE' WITH CHECKSUM"
+                ls -1t /backup/PharmaDb_*.bak | tail -n +$((KEEP + 1)) | xargs -r rm -f
+                ls -lh /backup
+            volumeMounts:
+            - name: sql-backup
+              mountPath: /backup
+            resources:
+              requests: { memory: "64Mi", cpu: "50m" }
+              limits:   { memory: "256Mi", cpu: "250m" }
+          volumes:
+          - name: sql-backup
+            persistentVolumeClaim:
+              claimName: sql-backup-pvc

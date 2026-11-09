@@ -28,6 +28,9 @@ data:
         - source_labels: [__meta_kubernetes_pod_container_port_number]
           regex: "80"
           action: keep
+        - source_labels: [__meta_kubernetes_pod_ready]
+          regex: "true"
+          action: keep
         - source_labels: [__meta_kubernetes_pod_name]
           target_label: pod
         metric_relabel_configs:
@@ -47,6 +50,9 @@ data:
           action: keep
         - source_labels: [__meta_kubernetes_pod_container_port_number]
           regex: "80"
+          action: keep
+        - source_labels: [__meta_kubernetes_pod_ready]
+          regex: "true"
           action: keep
         - source_labels: [__meta_kubernetes_pod_name]
           target_label: pod
@@ -68,9 +74,16 @@ data:
         - source_labels: [__meta_kubernetes_pod_container_port_number]
           regex: "80"
           action: keep
+        - source_labels: [__meta_kubernetes_pod_ready]
+          regex: "true"
+          action: keep
         - source_labels: [__meta_kubernetes_pod_name]
           target_label: pod
         metric_relabel_configs:
         - source_labels: [__name__]
           regex: '.*'
           action: drop
+      - job_name: 'kube-state-metrics'
+        metrics_path: /metrics
+        static_configs:
+          - targets: ['kube-state-metrics:8080']

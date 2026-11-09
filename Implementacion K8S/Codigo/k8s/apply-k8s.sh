@@ -57,7 +57,7 @@ kubectl apply -f persistent-volumes/storage-class.yaml
 # Eliminar solo PVs en estado Released (huérfanos tras borrar el namespace).
 # No intentar borrar PVs Bound: kubectl delete se bloquearía indefinidamente.
 echo "   Limpiando PVs huérfanos (Released)..."
-for pv in sql-pv elasticsearch-pv prometheus-pv grafana-pv; do
+for pv in sql-pv sql-backup-pv elasticsearch-pv prometheus-pv grafana-pv; do
   status=$(kubectl get pv $pv -o jsonpath='{.status.phase}' 2>/dev/null || echo "NotFound")
   if [ "$status" = "Released" ] || [ "$status" = "Failed" ]; then
     kubectl delete pv $pv --ignore-not-found=true 2>/dev/null || true
@@ -66,6 +66,7 @@ done
 sleep 2
 
 kubectl apply -f persistent-volumes/sql-pv.yaml
+kubectl apply -f persistent-volumes/sql-backup-pv.yaml
 kubectl apply -f persistent-volumes/elasticsearch-pv.yaml
 kubectl apply -f persistent-volumes/prometheus-pv.yaml
 kubectl apply -f persistent-volumes/grafana-pv.yaml
@@ -74,6 +75,7 @@ echo ""
 echo "6. Desplegando base de datos..."
 kubectl apply -f services/ops/db-service.yaml
 kubectl apply -f deployments/ops/db-deployment.yaml
+kubectl apply -f cronjobs/db-backup-cronjob.yaml
 
 echo ""
 echo "   Esperando a que la base de datos esté lista..."
@@ -131,6 +133,8 @@ kubectl apply -f services/ops/prometheus-service.yaml
 kubectl apply -f deployments/ops/prometheus-deployment.yaml
 kubectl apply -f services/ops/node-exporter-service.yaml
 kubectl apply -f deployments/ops/node-exporter-daemonset.yaml
+kubectl apply -f services/ops/kube-state-metrics-service.yaml
+kubectl apply -f deployments/ops/kube-state-metrics.yaml
 
 kubectl apply -f services/ops/grafana-service.yaml
 kubectl apply -f deployments/ops/grafana-deployment.yaml
@@ -159,6 +163,10 @@ echo ""
 echo "9. Desplegando frontend..."
 kubectl apply -f services/frontend/ui-service.yaml
 kubectl apply -f deployments/frontend/ui-deployment.yaml
+
+echo ""
+echo "10. Creando PodDisruptionBudgets..."
+kubectl apply -f pdb/pharmago-pdbs.yaml
 
 echo ""
 echo "=== Despliegue completado ==="
