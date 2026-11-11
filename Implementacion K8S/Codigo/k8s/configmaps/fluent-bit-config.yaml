@@ -25,15 +25,15 @@ data:
         Name              tail
         Tag               kube.*
         Path              /var/log/containers/*.log
-        Parser            docker
+        # Formato del runtime: cri (containerd, el de este Minikube) o docker. Quita el prefijo
+        # "<fecha> stdout F " de cada línea y reensambla las líneas largas partidas por el runtime,
+        # así "log" queda con el JSON de la app y el filtro parser de abajo lo puede leer.
+        multiline.parser  docker, cri
         DB                /var/log/flb_kube.db
         Mem_Buf_Limit     5MB
         # JSON app logs (scopes, State) are often longer than SQL fragments; skipping them removes Message/Category from ES.
         Skip_Long_Lines   Off
         Buffer_Max_Size   1MB
-        # Reensambla líneas partidas por el driver de logs de Docker (>~16KB) en un solo registro.
-        Docker_Mode       On
-        Docker_Mode_Flush 5
         Refresh_Interval   10
 
   filter-kubernetes.conf: |
