@@ -23,7 +23,7 @@ for POD in $PODS; do
   # PID del contenedor "pause" del pod, que es el dueño de la red del pod. No sirve el PID de la app:
   # si la liveness la reinicia durante el corte, ese PID desaparece y no se podría restaurar la red.
   case "$CONTAINER_ID" in
-    containerd://*) PID=$(minikube ssh -n $NODE -- "sudo crictl inspectp -o go-template --template '{{.info.pid}}' \$(sudo crictl pods --name $POD -q)" | tr -d '\r') ;;
+    containerd://*) PID=$(minikube ssh -n $NODE -- "sudo crictl inspectp -o go-template --template '{{.info.pid}}' \$(sudo crictl pods --name $POD --state ready -q)" | tr -d '\r') ;;
     docker://*)     PID=$(minikube ssh -n $NODE -- "docker inspect -f '{{.State.Pid}}' \$(docker ps -q --filter name=k8s_POD_${POD}_${NS}_)" | tr -d '\r') ;;
     *) echo "Runtime no soportado para $POD ($CONTAINER_ID)"; exit 1 ;;
   esac

@@ -47,7 +47,7 @@ if [ "$KEEP_VOLUMES" = false ]; then
     echo ""
     echo "Eliminando PersistentVolumes..."
     sleep 2
-    for pv in sql-pv elasticsearch-pv prometheus-pv grafana-pv; do
+    for pv in sql-pv sql-backup-pv elasticsearch-pv prometheus-pv grafana-pv; do
         status=$(kubectl get pv $pv -o jsonpath='{.status.phase}' 2>/dev/null || echo "NotFound")
         if [ "$status" = "Released" ] || [ "$status" = "Failed" ] || [ "$status" = "Available" ] || [ "$status" = "NotFound" ]; then
             kubectl delete pv $pv --ignore-not-found=true 2>/dev/null || true

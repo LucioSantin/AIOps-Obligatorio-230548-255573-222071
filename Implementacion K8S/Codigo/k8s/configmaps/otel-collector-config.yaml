@@ -27,6 +27,10 @@ data:
                 action: keep
               - source_labels: [__meta_kubernetes_pod_node_name]
                 target_label: node
+              metric_relabel_configs:
+              - source_labels: [__name__]
+                regex: node_(cpu_seconds_total|memory_MemAvailable_bytes|memory_MemTotal_bytes|filesystem_avail_bytes|filesystem_size_bytes|network_receive_bytes_total|network_transmit_bytes_total)
+                action: keep
 
             - job_name: 'kubernetes-cadvisor'
               kubernetes_sd_configs:
@@ -48,6 +52,10 @@ data:
                 target_label: node
               - replacement: kubernetes-cadvisor
                 target_label: job
+              metric_relabel_configs:
+              - source_labels: [__name__]
+                regex: container_(cpu_usage_seconds_total|cpu_cfs_throttled_seconds_total|spec_cpu_quota|memory_working_set_bytes|spec_memory_limit_bytes|network_receive_bytes_total|network_transmit_bytes_total|fs_writes_bytes_total)
+                action: keep
           
     processors:
       memory_limiter:
@@ -62,6 +70,7 @@ data:
         resource_to_telemetry_conversion:
           enabled: true
         metric_expiration: 1m
+        send_timestamps: true
       otlp/jaeger:
         endpoint: "jaeger:4317"
         tls:

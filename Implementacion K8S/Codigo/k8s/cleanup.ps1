@@ -28,7 +28,7 @@ if ($LASTEXITCODE -eq 0) {
 # Eliminar PersistentVolumes (están fuera del namespace)
 if (-not $KeepVolumes) {
     Write-Host "`nEliminando PersistentVolumes..." -ForegroundColor Cyan
-    kubectl delete pv sql-pv elasticsearch-pv prometheus-pv grafana-pv --ignore-not-found=true
+    kubectl delete pv sql-pv sql-backup-pv elasticsearch-pv prometheus-pv grafana-pv --ignore-not-found=true
     Write-Host "PersistentVolumes eliminados" -ForegroundColor Green
 } else {
     Write-Host "`nPersistentVolumes conservados (usar -KeepVolumes para conservarlos)" -ForegroundColor Yellow

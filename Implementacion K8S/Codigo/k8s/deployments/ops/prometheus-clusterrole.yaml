@@ -5,7 +5,7 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: ["nodes", "nodes/proxy"]
-    verbs: ["get", "list"]
+    verbs: ["get", "list", "watch"]
   # Para descubrir los pods de backend y scrapear cada réplica
   - apiGroups: [""]
     resources: ["pods"]

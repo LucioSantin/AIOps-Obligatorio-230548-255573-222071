@@ -24,7 +24,7 @@ data:
                   refId: A
                   instant: true
                   expr: >-
-                    sum by (pod) (rate(container_cpu_usage_seconds_total{namespace="pharmago",container!="",container!="POD"}[2m]))
+                    sum by (pod) (irate(container_cpu_usage_seconds_total{namespace="pharmago",container!="",container!="POD"}[1m]))
                     /
                     (sum by (pod) (container_spec_cpu_quota{namespace="pharmago",container!="",container!="POD"} > 0) / 100000)
               - refId: B
@@ -43,7 +43,7 @@ data:
             execErrState: Error
             labels: { severity: warning }
             annotations:
-              summary: "El pod {{ $$labels.pod }} usa más del 80% de su límite de CPU"
+              summary: "El pod {{ .Labels.pod }} usa más del 80% de su límite de CPU"
 
           - uid: pharmago-memoria-alta
             title: Memoria alta en pod
@@ -75,7 +75,7 @@ data:
             execErrState: Error
             labels: { severity: warning }
             annotations:
-              summary: "El pod {{ $$labels.pod }} usa más del 85% de su límite de memoria"
+              summary: "El pod {{ .Labels.pod }} usa más del 85% de su límite de memoria"
 
           - uid: pharmago-disco-nodo
             title: Disco del nodo casi lleno
@@ -105,7 +105,7 @@ data:
             execErrState: Error
             labels: { severity: critical }
             annotations:
-              summary: "El disco del nodo {{ $$labels.node }} está por encima del 85%"
+              summary: "El disco del nodo {{ .Labels.node }} está por encima del 85%"
 
           - uid: pharmago-errores-http
             title: Pico de errores HTTP
@@ -118,7 +118,8 @@ data:
                   refId: A
                   instant: true
                   expr: >-
-                    sum by (job) (rate({__name__=~"pharmago_http_errors_total.*",job=~"PharmaGo.*"}[1m]))
+                    sum by (job) ({__name__=~"pharmago_http_errors_total.*",job=~"PharmaGo.*",error_type!="client_error"})
+                    - (sum by (job) ({__name__=~"pharmago_http_errors_total.*",job=~"PharmaGo.*",error_type!="client_error"} offset 1m) or sum by (job) ({__name__=~"pharmago_http_errors_total.*",job=~"PharmaGo.*",error_type!="client_error"}) * 0)
               - refId: B
                 datasourceUid: __expr__
                 model: { refId: B, type: reduce, expression: A, reducer: last }
@@ -129,13 +130,13 @@ data:
                   type: threshold
                   expression: B
                   conditions:
-                    - evaluator: { type: gt, params: [2] }
-            for: 15s
+                    - evaluator: { type: gt, params: [30] }
+            for: 0s
             noDataState: OK
             execErrState: Error
             labels: { severity: warning }
             annotations:
-              summary: "{{ $$labels.job }} está respondiendo más de 2 errores por segundo"
+              summary: "{{ .Labels.job }} respondió más de 30 errores de servidor (5xx) en el último minuto"
 
           - uid: pharmago-dependencia-caida
             title: Base de datos inaccesible
@@ -165,7 +166,7 @@ data:
             execErrState: Error
             labels: { severity: critical }
             annotations:
-              summary: "{{ $$labels.job }} no puede conectarse a la base de datos"
+              summary: "{{ .Labels.job }} no puede conectarse a la base de datos"
 
           - uid: pharmago-replicas-caidas
             title: Réplica de microservicio caída
@@ -198,7 +199,7 @@ data:
             execErrState: Error
             labels: { severity: critical }
             annotations:
-              summary: "{{ $$labels.job }} tiene menos de 2 réplicas respondiendo"
+              summary: "{{ .Labels.job }} tiene menos de 2 réplicas listas (Ready)"
 
           - uid: pharmago-latencia-alta
             title: Latencia alta en microservicio
@@ -211,9 +212,9 @@ data:
                   refId: A
                   instant: true
                   expr: >-
-                    sum by (job) (rate(pharmago_http_request_duration_milliseconds_sum{job=~"PharmaGo.*"}[5m]))
+                    sum by (job) (rate(pharmago_http_request_duration_milliseconds_sum{job=~"PharmaGo.*"}[1m]))
                     /
-                    sum by (job) (rate(pharmago_http_request_duration_milliseconds_count{job=~"PharmaGo.*"}[5m]))
+                    sum by (job) (rate(pharmago_http_request_duration_milliseconds_count{job=~"PharmaGo.*"}[1m]))
               - refId: B
                 datasourceUid: __expr__
                 model: { refId: B, type: reduce, expression: A, reducer: last, settings: { mode: dropNN } }
@@ -230,7 +231,7 @@ data:
             execErrState: Error
             labels: { severity: warning }
             annotations:
-              summary: "{{ $$labels.job }} tiene latencia promedio mayor a 1 s"
+              summary: "{{ .Labels.job }} tiene latencia promedio mayor a 1 s"
 
           - uid: pharmago-red-caida
             title: Pod de backend sin tráfico de red
@@ -243,7 +244,9 @@ data:
                   refId: A
                   instant: true
                   expr: >-
-                    sum by (pod) (rate(container_network_transmit_bytes_total{namespace="pharmago",pod=~"pharmago-(api-gateway|users-service|pharmacy-service)-.*"}[30s]))
+                    (sum by (pod) (irate(container_network_transmit_bytes_total{namespace="pharmago",interface="eth0",pod=~"pharmago-(api-gateway|users-service|pharmacy-service)-.*"}[1m])) < 100)
+                    and on (pod)
+                    (sum by (pod) (irate(container_cpu_usage_seconds_total{namespace="pharmago",container!="",container!="POD",pod=~"pharmago-(api-gateway|users-service|pharmacy-service)-.*"}[1m])) > 0)
               - refId: B
                 datasourceUid: __expr__
                 model: { refId: B, type: reduce, expression: A, reducer: last }
@@ -255,12 +258,12 @@ data:
                   expression: B
                   conditions:
                     - evaluator: { type: lt, params: [100] }
-            for: 20s
+            for: 10s
             noDataState: OK
             execErrState: Error
             labels: { severity: critical }
             annotations:
-              summary: "El pod {{ $$labels.pod }} casi no recibe tráfico de red (posible corte)"
+              summary: "El pod {{ .Labels.pod }} casi no envía tráfico de red pero sigue vivo (posible corte de red)"
 
           - uid: pharmago-circuito-abierto
             title: Circuit breaker abierto
@@ -291,4 +294,190 @@ data:
             execErrState: Error
             labels: { severity: critical }
             annotations:
-              summary: "El gateway cortó el tráfico hacia {{ $$labels.cluster }}: el servicio está fallando (5xx o timeouts)"
+              summary: "El gateway cortó el tráfico hacia {{ .Labels.cluster }}: el servicio está fallando (5xx o timeouts)"
+
+          - uid: pharmago-escritura-disco
+            title: Escritura a disco alta en pod
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange: { from: 300, to: 0 }
+                datasourceUid: prometheus
+                model:
+                  refId: A
+                  instant: true
+                  expr: >-
+                    sum by (pod) (rate(container_fs_writes_bytes_total{namespace="pharmago",pod=~"pharmago-(api-gateway|users-service|pharmacy-service)-.*",container!="",container!="POD"}[1m]))
+              - refId: B
+                datasourceUid: __expr__
+                model: { refId: B, type: reduce, expression: A, reducer: last }
+              - refId: C
+                datasourceUid: __expr__
+                model:
+                  refId: C
+                  type: threshold
+                  expression: B
+                  conditions:
+                    - evaluator: { type: gt, params: [1048576] }
+            for: 0s
+            noDataState: OK
+            execErrState: Error
+            labels: { severity: warning }
+            annotations:
+              summary: "El pod {{ .Labels.pod }} escribe más de 1 MB/s a disco (su límite de ephemeral-storage es chico)"
+
+          - uid: pharmago-rate-limit
+            title: Rate limit activo en el gateway
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange: { from: 300, to: 0 }
+                datasourceUid: prometheus
+                model:
+                  refId: A
+                  instant: true
+                  expr: >-
+                    sum by (job) (pharmago_http_requests_total{job="PharmaGo.ApiGateway",status_code="429"})
+                    - (sum by (job) (pharmago_http_requests_total{job="PharmaGo.ApiGateway",status_code="429"} offset 1m) or sum by (job) (pharmago_http_requests_total{job="PharmaGo.ApiGateway",status_code="429"}) * 0)
+              - refId: B
+                datasourceUid: __expr__
+                model: { refId: B, type: reduce, expression: A, reducer: last }
+              - refId: C
+                datasourceUid: __expr__
+                model:
+                  refId: C
+                  type: threshold
+                  expression: B
+                  conditions:
+                    - evaluator: { type: gt, params: [60] }
+            for: 0s
+            noDataState: OK
+            execErrState: Error
+            labels: { severity: warning }
+            annotations:
+              summary: "El gateway bloqueó más de 60 requests con 429 en el último minuto (posible ataque de requests)"
+
+          - uid: pharmago-telemetria-caida
+            title: Telemetría caída
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange: { from: 300, to: 0 }
+                datasourceUid: prometheus
+                model:
+                  refId: A
+                  instant: true
+                  expr: >-
+                    (sum(up{job="otlp-collector"}) or vector(0))
+                    * clamp_max(count(container_memory_working_set_bytes{namespace="pharmago"}) or vector(0), 1)
+                    * clamp_max(count(pharmago_health_status) or vector(0), 1)
+              - refId: B
+                datasourceUid: __expr__
+                model: { refId: B, type: reduce, expression: A, reducer: last }
+              - refId: C
+                datasourceUid: __expr__
+                model:
+                  refId: C
+                  type: threshold
+                  expression: B
+                  conditions:
+                    - evaluator: { type: lt, params: [1] }
+            for: 30s
+            noDataState: Alerting
+            execErrState: Error
+            labels: { severity: critical }
+            annotations:
+              summary: "El collector de OpenTelemetry no está entregando métricas: el resto de las alertas no ve nada"
+
+          - uid: pharmago-reinicios
+            title: Pod reiniciado
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange: { from: 600, to: 0 }
+                datasourceUid: prometheus
+                model:
+                  refId: A
+                  instant: true
+                  expr: >-
+                    sum by (pod) (increase(kube_pod_container_status_restarts_total{namespace="pharmago"}[5m]))
+              - refId: B
+                datasourceUid: __expr__
+                model: { refId: B, type: reduce, expression: A, reducer: last }
+              - refId: C
+                datasourceUid: __expr__
+                model:
+                  refId: C
+                  type: threshold
+                  expression: B
+                  conditions:
+                    - evaluator: { type: gt, params: [0.5] }
+            for: 0s
+            noDataState: OK
+            execErrState: Error
+            labels: { severity: warning }
+            annotations:
+              summary: "El pod {{ .Labels.pod }} se reinició en los últimos 5 minutos"
+
+          - uid: pharmago-evicted
+            title: Pod desalojado (Evicted)
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange: { from: 600, to: 0 }
+                datasourceUid: prometheus
+                model:
+                  refId: A
+                  instant: true
+                  expr: >-
+                    sum by (pod) (kube_pod_status_phase{namespace="pharmago",phase=~"Failed|Succeeded"} > 0)
+                    and on (pod) kube_pod_owner{namespace="pharmago",owner_kind="ReplicaSet"}
+              - refId: B
+                datasourceUid: __expr__
+                model: { refId: B, type: reduce, expression: A, reducer: last }
+              - refId: C
+                datasourceUid: __expr__
+                model:
+                  refId: C
+                  type: threshold
+                  expression: B
+                  conditions:
+                    - evaluator: { type: gt, params: [0] }
+            for: 0s
+            noDataState: OK
+            execErrState: Error
+            labels: { severity: warning }
+            annotations:
+              summary: "El pod {{ .Labels.pod }} fue desalojado (Evicted) o terminó y quedó sin reemplazar; revisar kubectl describe pod"
+
+          - uid: pharmago-backup-fallido
+            title: Backup de la base fallido
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange: { from: 600, to: 0 }
+                datasourceUid: prometheus
+                model:
+                  refId: A
+                  instant: true
+                  expr: >-
+                    max(kube_job_status_start_time{namespace="pharmago",job_name=~"pharmago-db-backup-.*"} and on (job_name) (kube_job_failed{namespace="pharmago",condition="true"} == 1))
+                    -
+                    (max(kube_job_status_start_time{namespace="pharmago",job_name=~"pharmago-db-backup-.*"} and on (job_name) (kube_job_complete{namespace="pharmago",condition="true"} == 1)) or vector(0))
+              - refId: B
+                datasourceUid: __expr__
+                model: { refId: B, type: reduce, expression: A, reducer: last }
+              - refId: C
+                datasourceUid: __expr__
+                model:
+                  refId: C
+                  type: threshold
+                  expression: B
+                  conditions:
+                    - evaluator: { type: gt, params: [0] }
+            for: 0s
+            noDataState: OK
+            execErrState: Error
+            labels: { severity: critical }
+            annotations:
+              summary: "El último backup de PharmaDb falló y no hubo uno exitoso después"

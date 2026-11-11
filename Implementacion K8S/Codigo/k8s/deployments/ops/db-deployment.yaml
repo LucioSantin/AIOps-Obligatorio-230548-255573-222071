@@ -39,6 +39,8 @@ spec:
         volumeMounts:
         - name: sql-storage
           mountPath: /var/opt/mssql
+        - name: sql-backup
+          mountPath: /var/opt/mssql/backup
       containers:
       - name: pharmago-db
         image: mcr.microsoft.com/mssql/server:2019-latest
@@ -59,6 +61,8 @@ spec:
         volumeMounts:
         - name: sql-storage
           mountPath: /var/opt/mssql
+        - name: sql-backup
+          mountPath: /var/opt/mssql/backup
         readinessProbe:
           tcpSocket:
             port: 1433
@@ -83,4 +87,7 @@ spec:
       - name: sql-storage
         persistentVolumeClaim:
           claimName: sql-pvc
+      - name: sql-backup
+        persistentVolumeClaim:
+          claimName: sql-backup-pvc
 
