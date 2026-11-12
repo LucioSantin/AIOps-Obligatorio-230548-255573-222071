@@ -2,6 +2,8 @@
 # Mata (crash) o congela (hang) el proceso de un pod y mide cuánto tarda en recuperarse. Uso ./inject-process-failure.sh <users|pharmacy|gateway> [crash|hang]
 
 NAMESPACE=pharmago
+# En Git Bash (Windows) evita que rutas como /tmp/stats se conviertan a rutas de Windows al pasarlas a kubectl
+export MSYS_NO_PATHCONV=1
 PROBE=failure-probe
 SERVICE="$1"
 MODE="${2:-crash}"
@@ -20,6 +22,8 @@ case "$MODE" in
 esac
 
 now() { perl -MTime::HiRes=time -e 'printf "%.2f", time'; }
+# Segundos transcurridos desde $1, con decimales. Con awk y no bc porque Git Bash no trae bc
+elapsed() { awk -v a="$(now)" -v b="$1" 'BEGIN { printf "%.2f", a - b }'; }
 
 pod_field() {
     kubectl get pod "$victim" -n "$NAMESPACE" -o jsonpath="$1"
@@ -62,7 +66,7 @@ minikube ssh -n "$node" -- "sudo kill -$SIGNAL $pid"
 
 # Espera a que la readinessProbe lo saque del Service
 while [ "$(pod_field '{.status.conditions[?(@.type=="Ready")].status}')" = "True" ]; do sleep 0.2; done
-echo "Fuera del Service a los $(echo "$(now) - $start" | bc) s"
+echo "Fuera del Service a los $(elapsed "$start") s"
 
 # Espera a que el contenedor se reinicie y vuelva a estar Ready
 timeout_at=$(( ${start%.*} + 300 ))
@@ -74,7 +78,7 @@ while [ "$(pod_field '{.status.containerStatuses[0].restartCount}')" -le "$resta
     fi
     sleep 0.5
 done
-echo "Contenedor reiniciado y Ready de nuevo a los $(echo "$(now) - $start" | bc) s (reinicios $(pod_field '{.status.containerStatuses[0].restartCount}'))"
+echo "Contenedor reiniciado y Ready de nuevo a los $(elapsed "$start") s (reinicios $(pod_field '{.status.containerStatuses[0].restartCount}'))"
 echo "Motivo del reinicio $(pod_field '{.status.containerStatuses[0].lastState.terminated.reason}') (exit $(pod_field '{.status.containerStatuses[0].lastState.terminated.exitCode}'))"
 
 STATS="$(kubectl exec "$PROBE" -n "$NAMESPACE" -- cat /tmp/stats 2>/dev/null)"
