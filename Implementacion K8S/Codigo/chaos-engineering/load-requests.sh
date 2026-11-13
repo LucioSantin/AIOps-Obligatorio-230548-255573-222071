@@ -5,8 +5,21 @@ URL="${2:-http://127.0.0.1:5000/api/login}"
 N="${1:-500}"
 BODY='{"userName":"x","password":"y"}'
 
-# Sin port-forward todos los curl fallan sin avisar: verificar antes que el gateway responda
-if ! curl -s -o /dev/null -m 5 -X POST "$URL" -H "Content-Type: application/json" -d "$BODY"; then
+# Sin port-forward todos los curl fallan sin avisar: verificar antes que el gateway responda.
+# Se reintenta hasta 10 s porque un port-forward recién lanzado tarda unos segundos en escuchar.
+# Se mide por reloj y no por intentos: en Windows cada conexión rechazada tarda ~2 s en fallar.
+limite=$(( $(date +%s) + 10 ))
+conectado=0
+avisado=0
+while [ "$(date +%s)" -lt "$limite" ]; do
+  if curl -s -o /dev/null -m 5 -X POST "$URL" -H "Content-Type: application/json" -d "$BODY"; then
+    conectado=1
+    break
+  fi
+  [ $avisado -eq 0 ] && echo "Esperando a que $URL responda..." && avisado=1
+  sleep 1
+done
+if [ $conectado -eq 0 ]; then
   echo "Error: no se pudo conectar a $URL"
   echo "  ¿Está activo el port-forward? kubectl port-forward svc/pharmago-api-gateway 5000:80 -n pharmago"
   exit 1

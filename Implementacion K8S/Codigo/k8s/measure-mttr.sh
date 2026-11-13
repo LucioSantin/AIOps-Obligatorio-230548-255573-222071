@@ -2,6 +2,8 @@
 # Borra un pod y mide cuánto tarda en volver a Ready. Uso ./measure-mttr.sh <users|pharmacy|gateway> [corridas]
 
 NAMESPACE=pharmago
+# En Git Bash (Windows) evita que rutas como /tmp/stats se conviertan a rutas de Windows al pasarlas a kubectl
+export MSYS_NO_PATHCONV=1
 PROBE=mttr-probe
 SERVICE="$1"
 RUNS="${2:-3}"
@@ -14,6 +16,8 @@ case "$SERVICE" in
 esac
 
 now() { perl -MTime::HiRes=time -e 'printf "%.2f", time'; }
+# Segundos transcurridos desde $1, con decimales. Con awk y no bc porque Git Bash no trae bc
+elapsed() { awk -v a="$(now)" -v b="$1" 'BEGIN { printf "%.2f", a - b }'; }
 
 # Pods Ready que no se están terminando, excluyendo el pod borrado
 ready_pods() {
@@ -63,8 +67,7 @@ for run in $(seq 1 "$RUNS"); do
         fi
         sleep 0.5
     done
-    end="$(now)"
-    secs="$(echo "$end - $start" | bc)"
+    secs="$(elapsed "$start")"
     TIMES+=("$secs")
     echo "Corrida $run: borrado $victim, de nuevo $DESIRED/$DESIRED Ready en ${secs} s"
 done

@@ -42,13 +42,24 @@ kubectl apply -f secrets/db-secret.yaml
 
 echo ""
 echo "4. Creando configmaps..."
-kubectl apply -f configmaps/prometheus-config.yaml
-kubectl apply -f configmaps/otel-collector-config.yaml
-kubectl apply -f configmaps/grafana-provisioning.yaml
-kubectl apply -f configmaps/grafana-dashboards.yaml
-kubectl apply -f configmaps/grafana-dashboard-infra.yaml
-kubectl apply -f configmaps/fluent-bit-config.yaml
-kubectl apply -f configmaps/grafana-alerting.yaml
+# Prometheus, el collector y Grafana montan sus ConfigMaps con subPath (no ven los cambios) y
+# Fluent Bit no recarga su config: si un ConfigMap cambió, se reinicia a quien lo usa en el paso 11
+RESTART=()
+apply_config() {
+    local out
+    out="$(kubectl apply -f "$1")" || exit 1
+    echo "$out"
+    if echo "$out" | grep -q ' configured$'; then
+        RESTART+=("$2")
+    fi
+}
+apply_config configmaps/prometheus-config.yaml       deployment/prometheus
+apply_config configmaps/otel-collector-config.yaml   deployment/otlp-collector
+apply_config configmaps/grafana-provisioning.yaml    deployment/grafana
+apply_config configmaps/grafana-dashboards.yaml      deployment/grafana
+apply_config configmaps/grafana-dashboard-infra.yaml deployment/grafana
+apply_config configmaps/fluent-bit-config.yaml       daemonset/fluent-bit
+apply_config configmaps/grafana-alerting.yaml        deployment/grafana
 
 echo ""
 echo "5. Creando StorageClass y PersistentVolumes..."
@@ -169,6 +180,16 @@ echo "10. Creando PodDisruptionBudgets..."
 kubectl apply -f pdb/pharmago-pdbs.yaml
 
 echo ""
+if [ ${#RESTART[@]} -gt 0 ]; then
+    echo ""
+    echo "11. Reiniciando componentes cuya configuración cambió..."
+    for target in $(printf '%s\n' "${RESTART[@]}" | sort -u); do
+        kubectl rollout restart "$target" -n pharmago
+        kubectl rollout status "$target" -n pharmago --timeout=300s
+    done
+    echo ""
+fi
+
 echo "=== Despliegue completado ==="
 echo ""
 echo "Verificando estado de los pods..."
